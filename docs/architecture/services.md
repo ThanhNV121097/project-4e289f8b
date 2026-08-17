@@ -393,6 +393,8 @@ At least one editable field must be present. Unknown fields are rejected. Omitte
 
 **Purpose** — Delete persisted task. **Traces to** — TASKS-005. **Auth** — implicit Board owner; no credentials.
 
+Reviewed UI mock module from PR #16, `code/frontend/lib/mock/delete-task.ts`, uses the shared saved task shape for cards and confirmation, list envelope `{ tasks, next_cursor, has_more }` for refresh, and error envelope `{ error: { code, message, details, request_id } }`. This endpoint matches that contract. No frontend contract deviation needed.
+
 **Path / query parameters**
 
 | Name | In | Type | Required | Constraints | Description |
@@ -421,7 +423,15 @@ No response body.
 | `INTERNAL` | 500 | Unexpected server failure. |
 | `UNAVAILABLE` | 503 | Database unavailable, migrations not ready, or request timed out before DB commit. |
 
-**Notes** — UI confirmation happens before calling API. Cancelled delete sends no API request. Delete is hard delete; no soft-delete, archive, undo, or activity log exists. On 204, frontend removes task from board. On `NOT_FOUND`, frontend shows not-found message and refreshes list from API.
+**Notes** — UI confirmation happens before calling API. Cancelled delete sends no API request. Delete is hard delete; no soft-delete, archive, undo, or activity log exists. On 204, frontend removes task from board and updates counts from current saved list state. On `NOT_FOUND`, frontend shows not-found message and refreshes list from API. On `UNAVAILABLE`, `INTERNAL`, or `RATE_LIMITED`, frontend keeps last confirmed saved task visible.
+
+Implementation outline:
+
+1. Validate `task_id` as UUID before repository call.
+2. Reject non-empty body with `BAD_REQUEST`.
+3. Execute parameterized `DELETE FROM tasks WHERE id = $1`.
+4. If affected row count is `0`, return `NOT_FOUND`.
+5. If affected row count is `1`, return `204` with empty body.
 
 ### 3.5 `GET /healthz`
 
@@ -470,13 +480,13 @@ No jobs, queues, schedules, or events in scope.
 No third-party integrations in scope. No secrets or provider setup required by this contract.
 
 | System | Purpose | Protocol | Timeout | Retry | On failure | Secrets |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|
 | PostgreSQL | Persist and load task rows | SQL over database driver | 2s per query inside 5s inbound request timeout | No automatic retry for writes; reads may retry once only before response if connection acquisition fails before query starts | User sees API error state or save/delete failure; frontend keeps last confirmed saved data and offers retry where SRS requires | `DATABASE_URL` already documented in `code/backend/.env.example` |
 
 Cross-service calls:
 
 | Caller | Callee | Mode | Timeout | Retry policy | Idempotency key | On failure |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|
 | Next.js frontend | Go API service | Synchronous HTTP JSON from browser | 5s request timeout per call | GET list retry only when Board owner uses retry action; create/update/delete not auto-retried by UI after unknown outcome | Optional `Idempotency-Key` only for create double-submit protection | Show API error, validation error, not-found message, or save/delete failure per SRS; never use browser storage as persisted substitute |
 | Go API service | PostgreSQL | Synchronous SQL | 2s DB operation deadline within 5s inbound request timeout | No write retry. Read may retry once if failure occurs before query execution. | None; DB transaction plus primary key/constraints guard integrity | Return `UNAVAILABLE` for dependency outage/timeout or `INTERNAL` for unexpected error; log details by `request_id` |
 
@@ -572,7 +582,25 @@ Migration plan for this story:
 |---|---|---|---|
 | Edit and move API | Add handler/repository code using existing `tasks` table; no schema migration. | Remove handler/repository code or stop routing PATCH; no data rollback required. | Yes; no DDL, no data rewrite. Existing rows keep values. |
 
-## 11. Open questions
+## 11. Story extension — Delete task
+
+Mock contract read from approved UI PR #16:
+
+- `code/frontend/lib/mock/delete-task.ts` exposes `Task` with `id`, `title`, `description`, `status`, `due_date`, `created_at`, `updated_at`.
+- `TasksListResponse` is `{ tasks, next_cursor, has_more }`.
+- `ApiErrorResponse` is project error envelope `{ error: { code, message, details, request_id } }` with delete-relevant codes `BAD_REQUEST`, `NOT_FOUND`, `RATE_LIMITED`, `INTERNAL`, and `UNAVAILABLE`.
+
+API contract matches mock fields, nullability, list envelope, and error shape. No frontend rework needed for contract shape. Only behavior changes when backend replaces mock: `DELETE /api/v1/tasks/{task_id}` becomes persisted source of truth and returns `204` on confirmed delete.
+
+Migration plan for this story:
+
+| Step | Forward | Backward | Safe on populated table |
+|---|---|---|---|
+| Delete API | Add handler/repository code using existing `tasks` table and route `DELETE /api/v1/tasks/{task_id}`. No schema migration. | Remove handler/repository code or stop routing DELETE. Already-deleted rows are not restored without backup because hard delete is required product behavior. | Yes for schema; no DDL or data rewrite. Runtime delete intentionally removes target row only. |
+
+Delete must not add soft-delete columns, archive tables, audit/event tables, undo queue, retention job, ownership fields, or browser-storage fallback.
+
+## 12. Open questions
 
 | Question | Owner | Blocking |
 |---|---|---|
