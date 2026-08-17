@@ -1,0 +1,57 @@
+# Deployment overlay. Layered on top of docker-compose.yml, never used alone:
+#
+#   docker compose -f docker-compose.yml -f deploy.yml pull
+#   docker compose -f docker-compose.yml -f deploy.yml up -d
+#
+# See scaffold/compose/stateless/deploy.yml for why two services share one
+# hostname split by path, and scaffold/compose/api/deploy.yml for why the
+# project's own postgres does not start here.
+#
+# In short: NEXT_PUBLIC_API_URL is baked into the browser bundle at build time
+# by CI, which does not know the deployment address, so the frontend calls a
+# relative "/api" instead. And one shared Postgres serves every deployed
+# project with a database and role per project, because thirty projects each
+# running their own would be several GB of near-empty servers.
+
+services:
+  backend:
+    ports: !reset []
+    env_file: [.env.deploy]
+    # The project's own postgres is in the `local` profile and does not start
+    # here, so waiting for it is both impossible and pointless — the shared
+    # instance is already running and is not part of this stack. Compose treats
+    # a dependency on an inactive profile as an error rather than a no-op, so
+    # this is required, not tidiness.
+    depends_on: !reset []
+    networks: [default, edge, projects]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    labels:
+      caddy: ${DEPLOY_SCHEME:-http}://${PROJECT_SLUG:?PROJECT_SLUG is required}.${DEPLOY_DOMAIN:-localhost}
+      # Ordered before the frontend's /*: Caddy takes the first handler that
+      # matches. handle_path strips the prefix, so the backend sees /users
+      # rather than /api/users and needs no knowledge of how it is mounted.
+      caddy.1_handle_path: /api/*
+      caddy.1_handle_path.reverse_proxy: "{{upstreams 8080}}"
+
+  frontend:
+    ports: !reset []
+    # Written by the deployer beside these files: the project's own third-party
+    # credentials, as supplied by the stakeholder. Always present, often empty —
+    # a missing env_file is an error, and "this project has no keys" is not.
+    env_file: [.env.deploy]
+    networks: [default, edge]
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+    labels:
+      caddy: ${DEPLOY_SCHEME:-http}://${PROJECT_SLUG:?PROJECT_SLUG is required}.${DEPLOY_DOMAIN:-localhost}
+      caddy.2_handle: /*
+      caddy.2_handle.reverse_proxy: "{{upstreams 3000}}"
+
+networks:
+  edge:
+    name: aiteam_edge
+    external: true
+  projects:
+    name: aiteam_projects_data
+    external: true
