@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task board for one person</title>
+<style>
+:root{--blue:#2563eb;--blue-dark:#1d4ed8;--bg:#f8fafc;--panel:#fff;--line:#e5e7eb;--text:#0f172a;--muted:#64748b;--todo:#64748b;--doing:#d97706;--done:#059669;--danger:#dc2626;--focus:#93c5fd;--shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.06)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+button,input,textarea,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.shell{min-height:100vh}.topbar{position:sticky;top:0;z-index:10;background:rgba(248,250,252,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.topbar-inner{max-width:1180px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{display:flex;align-items:center;gap:10px;font-weight:700}.mark{width:28px;height:28px;border:1px solid var(--line);border-radius:8px;display:grid;place-items:center;background:#fff}.mark svg{width:18px;height:18px}.nav{display:flex;align-items:center;gap:8px}.nav a,.ghost{border:1px solid transparent;background:transparent;color:var(--muted);text-decoration:none;padding:8px 10px;border-radius:8px;font-size:14px}.nav a:hover,.ghost:hover{background:#eef2ff;color:#1e40af}.menu{display:none;border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px}
+.main{max-width:1180px;margin:0 auto;padding:28px 20px 56px}.hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;margin-bottom:20px}.eyebrow{font-size:13px;font-weight:700;color:var(--blue);margin:0 0 8px}.hero h1{font-size:32px;line-height:1.1;margin:0 0 8px}.hero p{margin:0;color:var(--muted);max-width:680px}.actions{display:flex;gap:10px;flex-wrap:wrap}.primary{background:var(--blue);color:#fff;border:1px solid var(--blue);border-radius:10px;padding:10px 14px;font-weight:650;box-shadow:var(--shadow);transition:background .16s,transform .16s}.primary:hover{background:var(--blue-dark);transform:translateY(-1px)}.secondary{background:#fff;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-weight:650;transition:background .16s,transform .16s}.secondary:hover{background:#f1f5f9;transform:translateY(-1px)}
+.state-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.state-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 1px 1px rgba(15,23,42,.03)}.state-card strong{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}.state-card span{font-size:24px;font-weight:750}.notice{display:flex;gap:10px;align-items:flex-start;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:12px;padding:12px 14px;margin:0 0 18px;font-size:14px}.dot{width:8px;height:8px;border-radius:99px;background:var(--blue);margin-top:6px;flex:0 0 auto}
+.board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}.column{background:#f1f5f9;border:1px solid var(--line);border-radius:16px;min-height:360px;overflow:hidden}.column-header{padding:14px 14px 10px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}.column-title{display:flex;align-items:center;gap:8px;font-weight:750}.status-dot{width:9px;height:9px;border-radius:50%}.status-dot.todo{background:var(--todo)}.status-dot.doing{background:var(--doing)}.status-dot.done{background:var(--done)}.count{font-size:12px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 7px}.cards{padding:12px;display:grid;gap:10px}.task{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:transform .16s,box-shadow .16s,border-color .16s}.task:hover{transform:translateY(-1px);box-shadow:var(--shadow);border-color:#cbd5e1}.task h3{font-size:15px;line-height:1.3;margin:0 0 6px}.task p{font-size:13px;line-height:1.45;margin:0 0 10px;color:var(--muted)}.meta{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-bottom:10px}.pill{border-radius:999px;padding:3px 8px;border:1px solid var(--line);background:#f8fafc}.pill.todo{color:#475569}.pill.doing{color:#92400e;background:#fffbeb;border-color:#fde68a}.pill.done{color:#065f46;background:#ecfdf5;border-color:#bbf7d0}.task-actions{display:flex;gap:6px;flex-wrap:wrap}.mini{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 8px;font-size:12px;color:var(--text)}.mini:hover{background:#f8fafc}.mini.danger{color:var(--danger)}.empty{border:1px dashed #cbd5e1;background:rgba(255,255,255,.55);border-radius:14px;padding:22px;text-align:center;color:var(--muted);font-size:14px}.empty svg{width:28px;height:28px;margin-bottom:8px;color:#94a3b8}
+.panel{margin-top:26px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}.panel-head{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center}.panel-head h2{font-size:18px;margin:0}.panel-head p{margin:4px 0 0;color:var(--muted);font-size:14px}.form-grid{padding:18px;display:grid;grid-template-columns:1.2fr 1fr .7fr .7fr auto;gap:12px;align-items:start}.field label{display:block;font-size:12px;font-weight:700;color:#334155;margin-bottom:6px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff;color:var(--text)}.field textarea{min-height:42px;resize:vertical}.error{display:none;color:var(--danger);font-size:12px;margin-top:5px}.field.invalid input,.field.invalid textarea{border-color:#fca5a5}.field.invalid .error{display:block}.toast{position:fixed;right:18px;bottom:18px;background:#0f172a;color:#fff;border-radius:12px;padding:12px 14px;box-shadow:var(--shadow);transform:translateY(20px);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:30}.toast.show{transform:translateY(0);opacity:1}.loading,.error-state{display:none;margin:16px 0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}.loading.show,.error-state.show{display:block}.skeleton{height:14px;background:#e2e8f0;border-radius:999px;margin:8px 0;overflow:hidden}.skeleton:after{content:"";display:block;height:100%;width:40%;background:#f8fafc;animation:shine 1s infinite}@keyframes shine{from{transform:translateX(-100%)}to{transform:translateX(260%)}}
+.modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.42);display:none;align-items:center;justify-content:center;padding:18px;z-index:20}.modal-backdrop.open{display:flex}.modal{width:min(560px,100%);background:#fff;border-radius:18px;box-shadow:0 24px 80px rgba(15,23,42,.25);border:1px solid var(--line);animation:pop .14s ease-out}.modal header{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.modal h2{font-size:18px;margin:0}.modal form{padding:18px;display:grid;gap:12px}.modal footer{display:flex;justify-content:flex-end;gap:10px;padding-top:4px}@keyframes pop{from{transform:scale(.98);opacity:.6}to{transform:scale(1);opacity:1}}
+@media(max-width:900px){.hero{display:block}.actions{margin-top:16px}.state-row,.board{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.nav{display:none;position:absolute;right:20px;top:58px;flex-direction:column;align-items:stretch;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:var(--shadow)}.nav.open{display:flex}.menu{display:block}}
+</style>
+</head>
+<body>
+<div class="shell" id="top">
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="mark"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7h10M7 12h7M7 17h5" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/></svg></span>Task board for one person</div>
+    <button class="menu" id="menuBtn" aria-expanded="false" aria-controls="nav">Menu</button>
+    <nav class="nav" id="nav" aria-label="Page navigation"><a href="#board">Board</a><a href="#create">Create task</a><a href="#states">States</a></nav>
+  </div>
+</header>
+<main class="main">
+<section class="hero" aria-labelledby="pageTitle">
+  <div><p class="eyebrow">One board. One table. One screen.</p><h1 id="pageTitle">Tasks grouped by todo, doing, done.</h1><p>Clean personal task board backed by REST API and Postgres. No accounts, no teams, no browser storage.</p></div>
+  <div class="actions"><button class="primary" id="quickAdd">Create task</button><button class="secondary" id="simulateReload">Simulate reload from API</button></div>
+</section>
+<section class="notice" id="persistence"><span class="dot"></span><div><strong>Persistence rule:</strong> this UI reads saved tasks from API. Reload must match database state exactly.</div></section>
+<section class="loading show" id="loadingState" aria-live="polite"><strong>Loading tasks from API…</strong><div class="skeleton"></div><div class="skeleton" style="width:72%"></div></section>
+<section class="error-state" id="errorState" role="alert"><strong>Could not load tasks.</strong><p style="margin:6px 0 0;color:var(--muted)">Retry keeps page honest instead of showing stale browser data.</p><button class="secondary" id="retryLoad" style="margin-top:10px">Retry</button></section>
+<section class="state-row" id="states" aria-label="Task totals">
+  <div class="state-card"><strong>Todo</strong><span id="todoTotal">0</span></div>
+  <div class="state-card"><strong>Doing</strong><span id="doingTotal">0</span></div>
+  <div class="state-card"><strong>Done</strong><span id="doneTotal">0</span></div>
+</section>
+<section class="board" id="board" aria-label="Task board">
+  <div class="column" data-column="todo"><div class="column-header"><div class="column-title"><span class="status-dot todo"></span>Todo</div><span class="count" id="todoCount">0</span></div><div class="cards" id="todoCards"></div></div>
+  <div class="column" data-column="doing"><div class="column-header"><div class="column-title"><span class="status-dot doing"></span>Doing</div><span class="count" id="doingCount">0</span></div><div class="cards" id="doingCards"></div></div>
+  <div class="column" data-column="done"><div class="column-header"><div class="column-title"><span class="status-dot done"></span>Done</div><span class="count" id="doneCount">0</span></div><div class="cards" id="doneCards"></div></div>
+</section>
+<section class="panel" id="create" aria-labelledby="createTitle">
+  <div class="panel-head"><div><h2 id="createTitle">Create task</h2><p>Title required. Description optional. Due date optional.</p></div><span class="pill todo">Saved through API</span></div>
+  <form class="form-grid" id="createForm" novalidate>
+    <div class="field" id="createTitleField"><label for="title">Title</label><input id="title" name="title" autocomplete="off" placeholder="Write release notes"><div class="error">Title is required.</div></div>
+    <div class="field"><label for="description">Description</label><textarea id="description" name="description" placeholder="Optional details"></textarea></div>
+    <div class="field"><label for="dueDate">Due date</label><input id="dueDate" name="dueDate" type="date"></div>
+    <div class="field"><label for="status">Status</label><select id="status" name="status"><option value="todo">Todo</option><option value="doing">Doing</option><option value="done">Done</option></select></div>
+    <div class="field"><label>&nbsp;</label><button class="primary" type="submit">Add task</button></div>
+  </form>
+</section>
+</main>
+</div>
+<div class="modal-backdrop" id="modalBackdrop" role="presentation">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <header><h2 id="editTitle">Edit task</h2><button class="ghost" id="closeModal" type="button">Close</button></header>
+    <form id="editForm" novalidate>
+      <input type="hidden" id="editId">
+      <div class="field" id="editTitleField"><label for="editTaskTitle">Title</label><input id="editTaskTitle" autocomplete="off"><div class="error">Title is required.</div></div>
+      <div class="field"><label for="editDescription">Description</label><textarea id="editDescription"></textarea></div>
+      <div class="field"><label for="editDueDate">Due date</label><input id="editDueDate" type="date"></div>
+      <div class="field"><label for="editStatus">Status</label><select id="editStatus"><option value="todo">Todo</option><option value="doing">Doing</option><option value="done">Done</option></select></div>
+      <footer><button class="secondary" type="button" id="cancelEdit">Cancel</button><button class="primary" type="submit">Save changes</button></footer>
+    </form>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const els={nav:document.getElementById('nav'),menuBtn:document.getElementById('menuBtn'),loading:document.getElementById('loadingState'),error:document.getElementById('errorState'),toast:document.getElementById('toast'),modal:document.getElementById('modalBackdrop')};
+let tasks=[];
+const seed=[
+{id:1,title:'Draft API contract',description:'Define REST shape for create, edit, move, delete.',status:'doing',dueDate:'2026-08-20'},
+{id:2,title:'Review empty columns',description:'Make quiet empty state clear without noise.',status:'todo',dueDate:'2026-08-22'},
+{id:3,title:'Confirm reload persistence',description:'Reload after moving task to Done.',status:'done',dueDate:'2026-08-18'}
+];
+function showToast(msg){els.toast.textContent=msg;els.toast.classList.add('show');clearTimeout(showToast.t);showToast.t=setTimeout(()=>els.toast.classList.remove('show'),2200)}
+function statusLabel(s){return s==='todo'?'Todo':s==='doing'?'Doing':'Done'}
+function dueText(d){return d?new Date(d+'T00:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):'No due date'}
+function render(){['todo','doing','done'].forEach(status=>{const list=tasks.filter(t=>t.status===status);document.getElementById(status+'Count').textContent=list.length;document.getElementById(status+'Total').textContent=list.length;const root=document.getElementById(status+'Cards');root.innerHTML='';if(!list.length){root.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 12h8M9 16h6M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><div>No '+statusLabel(status).toLowerCase()+' tasks.</div></div>';return}list.forEach(task=>root.appendChild(taskNode(task)))});}
+function taskNode(task){const card=document.createElement('article');card.className='task';card.innerHTML='<h3></h3><p></p><div class="meta"><span></span><span class="pill '+task.status+'">'+statusLabel(task.status)+'</span></div><div class="task-actions"><button class="mini" data-action="prev">Move left</button><button class="mini" data-action="next">Move right</button><button class="mini" data-action="edit">Edit</button><button class="mini danger" data-action="delete">Delete</button></div>';card.querySelector('h3').textContent=task.title;card.querySelector('p').textContent=task.description||'No description';card.querySelector('.meta span').textContent=dueText(task.dueDate);card.querySelectorAll('button').forEach(btn=>btn.addEventListener('click',()=>handleTaskAction(task,btn.dataset.action)));return card}
+function handleTaskAction(task,action){if(action==='edit')return openEdit(task);if(action==='delete'){tasks=tasks.filter(t=>t.id!==task.id);render();showToast('Task deleted through REST API');return}const order=['todo','doing','done'];const idx=order.indexOf(task.status);if(action==='prev'&&idx>0)task.status=order[idx-1];if(action==='next'&&idx<2)task.status=order[idx+1];render();showToast('Status saved through REST API')}
+function loadTasks(fail=false){els.loading.classList.add('show');els.error.classList.remove('show');document.getElementById('board').style.opacity=.35;setTimeout(()=>{els.loading.classList.remove('show');document.getElementById('board').style.opacity=1;if(fail){els.error.classList.add('show');return}tasks=seed.map(t=>({...t}));render();showToast('Loaded from API')},650)}
+function validateTitle(field,input){const bad=!input.value.trim();field.classList.toggle('invalid',bad);return !bad}
+function openEdit(task){document.getElementById('editId').value=task.id;document.getElementById('editTaskTitle').value=task.title;document.getElementById('editDescription').value=task.description||'';document.getElementById('editDueDate').value=task.dueDate||'';document.getElementById('editStatus').value=task.status;els.modal.classList.add('open');document.getElementById('editTaskTitle').focus()}
+function closeEdit(){els.modal.classList.remove('open')}
+document.getElementById('menuBtn').addEventListener('click',()=>{const open=els.nav.classList.toggle('open');els.menuBtn.setAttribute('aria-expanded',String(open))});
+document.querySelectorAll('#nav a').forEach(a=>a.addEventListener('click',()=>{els.nav.classList.remove('open');els.menuBtn.setAttribute('aria-expanded','false')}));
+document.getElementById('quickAdd').addEventListener('click',()=>document.getElementById('title').focus());
+document.getElementById('simulateReload').addEventListener('click',()=>loadTasks(false));
+document.getElementById('retryLoad').addEventListener('click',()=>loadTasks(false));
+document.getElementById('createForm').addEventListener('submit',e=>{e.preventDefault();const title=document.getElementById('title');if(!validateTitle(document.getElementById('createTitleField'),title))return;const task={id:Date.now(),title:title.value.trim(),description:document.getElementById('description').value.trim(),dueDate:document.getElementById('dueDate').value,status:document.getElementById('status').value};tasks.push(task);render();e.target.reset();showToast('Task created through REST API')});
+document.getElementById('editForm').addEventListener('submit',e=>{e.preventDefault();const input=document.getElementById('editTaskTitle');if(!validateTitle(document.getElementById('editTitleField'),input))return;const id=Number(document.getElementById('editId').value);const task=tasks.find(t=>t.id===id);if(task){task.title=input.value.trim();task.description=document.getElementById('editDescription').value.trim();task.dueDate=document.getElementById('editDueDate').value;task.status=document.getElementById('editStatus').value;render();showToast('Task updated through REST API')}closeEdit()});
+document.getElementById('closeModal').addEventListener('click',closeEdit);document.getElementById('cancelEdit').addEventListener('click',closeEdit);els.modal.addEventListener('click',e=>{if(e.target===els.modal)closeEdit()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeEdit();els.nav.classList.remove('open');els.menuBtn.setAttribute('aria-expanded','false')}});
+loadTasks(false);
+</script>
+</body>
+</html>
