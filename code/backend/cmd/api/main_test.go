@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"io"
@@ -104,7 +105,6 @@ var lastCreateExec string
 
 func openCreateTaskTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	sql.Register("create_task_test", createTaskTestDriver{})
 	db, err := sql.Open("create_task_test", "")
 	if err != nil {
 		t.Fatal(err)
@@ -113,21 +113,21 @@ func openCreateTaskTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
+func init() { sql.Register("create_task_test", createTaskTestDriver{}) }
+
 type createTaskTestDriver struct{}
-
 type createTaskTestConn struct{}
-
 type createTaskTestRows struct{ sent bool }
 
 func (createTaskTestDriver) Open(string) (driver.Conn, error) { return createTaskTestConn{}, nil }
-func (createTaskTestConn) Prepare(string) (driver.Stmt, error) { return nil, nil }
+func (createTaskTestConn) Prepare(string) (driver.Stmt, error) { return nil, driver.ErrSkip }
 func (createTaskTestConn) Close() error { return nil }
-func (createTaskTestConn) Begin() (driver.Tx, error) { return nil, nil }
-func (createTaskTestConn) Query(query string, args []driver.Value) (driver.Rows, error) {
+func (createTaskTestConn) Begin() (driver.Tx, error) { return nil, driver.ErrSkip }
+func (createTaskTestConn) QueryContext(_ context.Context, _ string, args []driver.NamedValue) (driver.Rows, error) {
 	parts := make([]string, len(args))
 	for i, arg := range args {
-		if arg != nil {
-			parts[i] = arg.(string)
+		if arg.Value != nil {
+			parts[i] = arg.Value.(string)
 		}
 	}
 	lastCreateExec = strings.Join(parts, "|")
