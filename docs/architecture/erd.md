@@ -108,6 +108,7 @@ No table is expected to approach 10M rows within one year. No partitioning or ar
 | 2 | Initial task schema | `001_create_tasks.up.sql`: create `tasks` table with columns, defaults, primary key, and checks. | `001_create_tasks.down.sql`: `DROP TABLE IF EXISTS tasks;` | n/a for initial empty database. Unsafe to roll back on populated table because rows are deleted; acceptable only before production data or after backup. |
 | 3 | Task listing index | `CREATE INDEX idx_tasks_status_created_at ON tasks (status, created_at);` | `DROP INDEX IF EXISTS idx_tasks_status_created_at;` | Yes on launch. On populated production table, use `CREATE INDEX CONCURRENTLY` in separate migration. |
 | 4 | Edit and move task | No schema change. Existing `tasks.title`, `tasks.description`, `tasks.status`, `tasks.due_date`, and `tasks.updated_at` satisfy TASKS-003 and TASKS-004. | No-op. | Yes; no DDL or data rewrite. |
+| 5 | Delete task | No schema change. Existing `tasks.id` primary key satisfies TASKS-005 delete target lookup; hard delete uses existing lifecycle rule. | No-op for schema. Deleted rows cannot be restored by rollback without backup because delete is product behavior, not DDL. | Yes for schema; runtime delete is safe for matching target row and intentionally removes data. |
 
 Forward SQL shape:
 
@@ -143,7 +144,15 @@ Reviewed UI mock module `code/frontend/lib/mock/edit-and-move-task.ts` defines t
 
 No new entity, column, foreign key, constraint, or index is needed for TASKS-003/TASKS-004. Edit and move use `UPDATE tasks SET title = COALESCE(...), description = ..., status = ..., due_date = ..., updated_at = now() WHERE id = $1 RETURNING ...` after handler validation. Primary key index serves target lookup; `idx_tasks_status_created_at` serves post-move board reload and status counts.
 
-## 10. Open questions
+## 10. Story extension — Delete task
+
+Reviewed UI mock module from PR #16, `code/frontend/lib/mock/delete-task.ts`, defines task object fields `id`, `title`, `description`, `status`, `due_date`, `created_at`, and `updated_at`; list envelope `tasks`, `next_cursor`, and `has_more`; and project error envelope `error.code`, `error.message`, `error.details`, and `error.request_id`. Existing schema maps every field needed for delete confirmation, affected column count updates, not-found refresh, and reload proof.
+
+No new entity, column, foreign key, constraint, or index is needed for TASKS-005. Delete uses `DELETE FROM tasks WHERE id = $1` after UUID validation. Primary key index serves target lookup. Hard delete is already documented lifecycle and matches SRS: deleted task must be absent from Postgres-backed reload; soft delete, archive, undo, restore, and activity log remain out of scope.
+
+Runtime rollback is not automatic: once a delete commits, restoring task data requires database backup or user recreation. This is acceptable because permanent delete is required product behavior and confirmation occurs before API call.
+
+## 11. Open questions
 
 | Question | Owner | Blocking |
 |---|---|---|
