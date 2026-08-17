@@ -18,8 +18,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-//go:embed migrations/*.up.sql
+//go:embed ../../migrations/*.up.sql
 var migrationFS embed.FS
+
+const migrationDir = "../../migrations"
 
 func main() {
 	if err := run(); err != nil {
@@ -106,7 +108,7 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 
-	entries, err := migrationFS.ReadDir("migrations")
+	entries, err := migrationFS.ReadDir(migrationDir)
 	if err != nil {
 		return err
 	}
@@ -121,7 +123,7 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 
 	for _, name := range names {
 		version := strings.TrimSuffix(name, ".up.sql")
-		if err := applyMigration(ctx, db, version, "migrations/"+name); err != nil {
+		if err := applyMigration(ctx, db, version, migrationDir+"/"+name); err != nil {
 			return err
 		}
 	}
