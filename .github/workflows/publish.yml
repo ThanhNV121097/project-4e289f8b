@@ -1,0 +1,111 @@
+name: Publish images
+
+# Builds every service in docker-compose.yml and pushes it to GHCR, tagged with
+# the commit SHA.
+#
+# Building here rather than on the deployment host is what makes the two the
+# same thing: the image a deploy runs is byte-identical to the one this workflow
+# tested. It also means a Dockerfile that does not build produces no image at
+# all, so a broken artifact cannot reach a server — the failure lands on the pull
+# request instead.
+#
+# `buildx bake` reads docker-compose.yml directly, so this workflow does not
+# care how many services the project has or what shape it is.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Is there anything to build yet?
+  #
+  # These files land on main before any code does: the orchestrator commits the
+  # container and CI setup at repo-creation time, deliberately, so the team
+  # inherits them rather than writing them by hand. For the hours between that
+  # commit and the first merged story, the Dockerfiles reference a go.mod and a
+  # package.json that do not exist, and every push to main failed — measured at
+  # 21 red runs on one project before a single line of application code was
+  # written.
+  #
+  # Red CI that means "not yet" is worse than no CI. It burns Actions minutes,
+  # it trains everyone to ignore the badge, and the orchestrator reads the same
+  # signal before deploying — a project that arrived at its deploy step early
+  # would be told its images failed to publish when nothing had been asked to
+  # build.
+  #
+  # A skipped job concludes as success, which is the honest answer to "did this
+  # commit break the build".
+  guard:
+    name: Source present?
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Look for a service manifest
+        id: check
+        run: |
+          if [ -f code/backend/go.mod ] || [ -f code/frontend/package.json ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No code/backend/go.mod and no code/frontend/package.json — nothing to build yet, skipping."
+          fi
+
+  publish:
+    name: Build and push
+    needs: guard
+    if: needs.guard.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # arm64 is emulated here. If that gets slow enough to hurt, split this into
+      # a matrix of native runners (ubuntu-24.04-arm is free for public repos)
+      # and join them with `docker buildx imagetools create`.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR rejects an uppercase path, and an organisation slug is free to
+      # contain one.
+      - name: Resolve image repository
+        run: echo "IMAGE_REPO=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Build and push
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker buildx bake \
+            --file docker-compose.yml \
+            --set '*.platform=linux/amd64,linux/arm64' \
+            --push
+
+      - name: Summary
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          {
+            echo "### Images published"
+            echo
+            echo "Repository: \`$IMAGE_REPO\`"
+            echo "Tag: \`$IMAGE_TAG\`"
+            echo
+            echo "Deployments pin this SHA. There is no \`latest\`."
+          } >> "$GITHUB_STEP_SUMMARY"
