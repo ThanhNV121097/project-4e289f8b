@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestValidatePatch(t *testing.T) {
 	blank := "  "
@@ -24,9 +29,55 @@ func TestValidatePatch(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := validatePatch(tc.req)
-			if len(got) == 0 || got[0].Field+":"+got[0].Code != tc.want { t.Fatalf("got %#v, want %s", got, tc.want) }
+			if len(got) == 0 || got[0].Field+":"+got[0].Code != tc.want {
+				t.Fatalf("got %#v, want %s", got, tc.want)
+			}
 		})
 	}
 }
 
-func makeString(n int) string { b := make([]byte, n); for i := range b { b[i] = 'x' }; return string(b) }
+func TestHasJSONContentType(t *testing.T) {
+	cases := map[string]bool{
+		"application/json":                 true,
+		"application/json; charset=utf-8": true,
+		"text/plain":                       false,
+		"application/jsonx":                false,
+		"":                                 false,
+	}
+	for contentType, want := range cases {
+		if got := hasJSONContentType(contentType); got != want {
+			t.Fatalf("hasJSONContentType(%q) = %v, want %v", contentType, got, want)
+		}
+	}
+}
+
+func TestDecodePatchRejectsBadBodies(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"malformed", `{"title":`, "body:MALFORMED_JSON"},
+		{"array", `[]`, "body:MALFORMED_JSON"},
+		{"unknown field", `{"title":"x","bogus":true}`, "body:UNKNOWN_FIELD"},
+		{"wrong type", `{"status":3}`, "body:MALFORMED_JSON"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPatch, "/api/v1/tasks/id", strings.NewReader(tc.body))
+			w := httptest.NewRecorder()
+			_, details, bad := decodePatch(w, r)
+			if !bad || len(details) == 0 || details[0].Field+":"+details[0].Code != tc.want {
+				t.Fatalf("bad=%v details=%#v, want %s", bad, details, tc.want)
+			}
+		})
+	}
+}
+
+func makeString(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = 'x'
+	}
+	return string(b)
+}
