@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useMemo, useRef, useState } from "react";
 import { tasksResponse, Task, TaskStatus } from "../lib/mock/edit-and-move-task";
 import styles from "./EditAndMoveTask.module.css";
 
@@ -31,7 +31,6 @@ function nextStatus(status: TaskStatus, delta: number) {
 
 export default function EditAndMoveTask() {
   const [tasks, setTasks] = useState<Task[]>(tasksResponse.tasks);
-  const [mode] = useState<"default" | "loading" | "error">("default");
   const [editing, setEditing] = useState<Task | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const opener = useRef<HTMLButtonElement | null>(null);
@@ -51,11 +50,10 @@ export default function EditAndMoveTask() {
     saveTask({ ...task, status: nextStatus(task.status, delta) });
   }
 
-  if (mode === "loading") return <StatePanel kind="loading" />;
-  if (mode === "error") return <StatePanel kind="error" />;
-
   return (
     <section className={styles.shell} aria-label="Edit and move tasks">
+      <StatePanel kind="loading" />
+      <StatePanel kind="error" />
       <div className={styles.summary} aria-label="Task totals">
         {totals.map((item) => <div className={styles.summaryCard} key={item.key}><span>{item.label}</span><strong>{item.count}</strong></div>)}
       </div>
@@ -81,8 +79,8 @@ function ColumnHeader({ status, count }: { status: { key: TaskStatus; label: str
 }
 
 function StatePanel({ kind }: { kind: "loading" | "error" }) {
-  if (kind === "error") return <div className={styles.state} role="alert"><strong>Could not load tasks.</strong><p>Retry avoids showing stale browser data.</p><button>Retry</button></div>;
-  return <div className={styles.state} aria-live="polite"><strong>Loading tasks from REST API.</strong><span /><span /></div>;
+  if (kind === "error") return <div className={styles.state} role="alert" hidden><strong>Could not load tasks.</strong><p>Retry avoids showing stale browser data.</p><button>Retry</button></div>;
+  return <div className={styles.state} aria-live="polite" hidden><strong>Loading tasks from REST API.</strong><span /><span /></div>;
 }
 
 function EditModal({ task, errors, onCancel, onSave }: { task: Task; errors: Errors; onCancel: () => void; onSave: (task: Task) => void }) {
@@ -98,6 +96,6 @@ function EditModal({ task, errors, onCancel, onSave }: { task: Task; errors: Err
   </form></div>;
 }
 
-function Field({ id, label, error, children }: { id: string; label: string; error?: string; children: React.ReactNode }) {
+function Field({ id, label, error, children }: { id: string; label: string; error?: string; children: ReactNode }) {
   return <label className={`${styles.field} ${error ? styles.invalid : ""}`} htmlFor={id}><span>{label}</span>{children}{error && <small id={`${id}-error`}>{error}</small>}</label>;
 }
