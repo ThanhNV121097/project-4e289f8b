@@ -13,7 +13,6 @@ import styles from "./DeleteTask.module.css";
 
 const statuses: TaskStatus[] = ["todo", "doing", "done"];
 const labels: Record<TaskStatus, string> = { todo: "Todo", doing: "Doing", done: "Done" };
-
 type LoadState = "loading" | "error" | "ready" | "empty";
 
 export default function DeleteTask() {
@@ -55,11 +54,6 @@ export default function DeleteTask() {
       {loadState === "error" ? <ErrorState onRetry={retryLoad} /> : null}
       {loadState === "empty" ? <Board tasks={deleteTaskEmptyResponse.tasks} counts={countByStatus([])} onDelete={setTarget} /> : null}
       {loadState === "ready" ? <Board tasks={tasks} counts={counts} onDelete={setTarget} /> : null}
-      <div className={styles.hiddenStates} aria-hidden="true">
-        <button type="button" onClick={() => setLoadState("loading")}>loading</button>
-        <button type="button" onClick={() => setLoadState("error")}>error</button>
-        <button type="button" onClick={() => setLoadState("empty")}>empty</button>
-      </div>
       {target ? <Confirm task={target} onCancel={() => setTarget(null)} onConfirm={confirmDelete} /> : null}
     </section>
   );
@@ -100,6 +94,7 @@ function TaskCard({ task, onDelete }: { task: Task; onDelete: (task: Task) => vo
     </article>
   );
 }
+
 function Confirm({ task, onCancel, onConfirm }: { task: Task; onCancel: () => void; onConfirm: () => void }) {
   return (
     <div className={styles.backdrop} role="presentation" onClick={onCancel}>
