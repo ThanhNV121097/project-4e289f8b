@@ -27,6 +27,19 @@ func TestValidatePatch(t *testing.T) {
 	for _, tc := range cases { t.Run(tc.name, func(t *testing.T) { got := validatePatch(tc.req); if len(got) == 0 || got[0].Field+":"+got[0].Code != tc.want { t.Fatalf("got %#v, want %s", got, tc.want) } }) }
 }
 
+func TestCursorRoundTrip(t *testing.T) {
+	want := listCursor{CreatedAt: "2026-08-17T10:00:00Z", ID: "550e8400-e29b-41d4-a716-446655440000"}
+	got, err := decodeCursor(encodeCursor(want))
+	if err != nil { t.Fatal(err) }
+	if got != want { t.Fatalf("cursor = %#v, want %#v", got, want) }
+}
+
+func TestDecodeCursorRejectsBadValues(t *testing.T) {
+	badUUID := encodeCursor(listCursor{CreatedAt: "2026-08-17T10:00:00Z", ID: "nope"})
+	badTime := encodeCursor(listCursor{CreatedAt: "2026-08-17", ID: "550e8400-e29b-41d4-a716-446655440000"})
+	for _, raw := range []string{"not-base64", badUUID, badTime} { if _, err := decodeCursor(raw); err == nil { t.Fatalf("decodeCursor(%q) succeeded, want error", raw) } }
+}
+
 func TestHasJSONContentType(t *testing.T) {
 	cases := map[string]bool{"application/json": true, "application/json; charset=utf-8": true, "text/plain": false, "application/jsonx": false, "": false}
 	for contentType, want := range cases { if got := hasJSONContentType(contentType); got != want { t.Fatalf("hasJSONContentType(%q) = %v, want %v", contentType, got, want) } }
