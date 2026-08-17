@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -57,8 +59,23 @@ type errorResponse struct {
 	} `json:"error"`
 }
 
-type app struct{ db *sql.DB }
+type app struct {
+	db      *sql.DB
+	limiter *rateLimiter
+}
+
 type requestIDKey struct{}
+
+type rateLimiter struct {
+	mu      sync.Mutex
+	clients map[string]*bucket
+	now     func() time.Time
+}
+
+type bucket struct {
+	tokens float64
+	seen   time.Time
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -81,11 +98,11 @@ func run() error {
 	if err := applyMigrations(ctx, db); err != nil {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
-	a := app{db: db}
+	a := app{db: db, limiter: newRateLimiter()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	mux.HandleFunc("GET /api/v1/tasks", a.listTasks)
-	server := &http.Server{Addr: ":" + listenPort(), Handler: requestID(mux), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + listenPort(), Handler: requestID(a.rateLimit(mux)), ReadHeaderTimeout: 5 * time.Second}
 	errCh := make(chan error, 1)
 	go func() {
 		log.Printf("listening on %s", server.Addr)
@@ -133,6 +150,53 @@ func getRequestID(r *http.Request) string {
 		return id
 	}
 	return "unknown"
+}
+
+func newRateLimiter() *rateLimiter {
+	return &rateLimiter{clients: map[string]*bucket{}, now: time.Now}
+}
+
+func (a app) rateLimit(next http.Handler) http.Handler {
+	if os.Getenv("RATE_LIMIT_DISABLED") == "true" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !a.limiter.allow(clientIP(r)) {
+			w.Header().Set("Retry-After", "1")
+			writeError(w, r, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Retry later.", nil)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (l *rateLimiter) allow(key string) bool {
+	const burst = 30.0
+	const refillPerSecond = 2.0
+	now := l.now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b := l.clients[key]
+	if b == nil {
+		l.clients[key] = &bucket{tokens: burst - 1, seen: now}
+		return true
+	}
+	elapsed := now.Sub(b.seen).Seconds()
+	b.tokens = min(burst, b.tokens+elapsed*refillPerSecond)
+	b.seen = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (a app) health(w http.ResponseWriter, r *http.Request) {
