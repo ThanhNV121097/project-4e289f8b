@@ -33,7 +33,7 @@ No other service may write `tasks`. Frontend reads and writes only through Go AP
 
 - Base URL: `{scheme}://{host}/api/v1`
 - Content type: `application/json; charset=utf-8`
-- Versioning: URL path major version. New major version only for breaking changes.
+- Versioning: URL path major version. A new major version only for breaking changes.
 - Trace header: `X-Request-Id` accepted from caller, generated if absent, echoed on every response and present in every backend log line.
 - Date format: `YYYY-MM-DD` calendar date, no time and no timezone.
 - Timestamp format: RFC 3339 UTC, for `created_at` and `updated_at`.
@@ -99,7 +99,7 @@ Field detail codes:
 | `description` | `TOO_LONG` | More than 2,000 characters after trimming |
 | `status` | `REQUIRED` | Missing on create when no default applies internally or null in update |
 | `status` | `INVALID_ENUM` | Not exactly `todo`, `doing`, or `done` |
-| `due_date` | `INVALID_DATE` | Not `YYYY-MM-DD` or not real calendar date |
+| `due_date` | `INVALID_DATE` | Not `YYYY-MM-DD` or not a real calendar date |
 | `task_id` | `INVALID_UUID` | Path ID is not UUID syntax |
 | `body` | `MALFORMED_JSON` | JSON cannot be parsed |
 | `body` | `UNKNOWN_FIELD` | JSON has fields outside endpoint schema |
@@ -241,7 +241,7 @@ None. Request with body is ignored only if empty; non-empty body returns `BAD_RE
 
 | Code | HTTP | Trigger |
 |---|---|---|
-| `BAD_REQUEST` | 400 | `limit` is not integer, outside 1..200, cursor is malformed, unsupported method body is non-empty, or query parameter is unsupported. |
+| `BAD_REQUEST` | 400 | `limit` is not an integer, outside 1..200, cursor is malformed, unsupported method body is non-empty, or query parameter is unsupported. |
 | `RATE_LIMITED` | 429 | Request exceeds rate limit. |
 | `INTERNAL` | 500 | Unexpected server failure. |
 | `UNAVAILABLE` | 503 | Database unavailable, migrations not ready, or request timed out before DB returned. |
@@ -251,6 +251,8 @@ None. Request with body is ignored only if empty; non-empty body returns `BAD_RE
 ### 3.2 `POST /api/v1/tasks`
 
 **Purpose** — Create persisted task. **Traces to** — TASKS-002. **Auth** — implicit Board owner; no credentials.
+
+Reviewed UI mock module `code/frontend/lib/mock/create-task.ts` uses `TaskCreateRequest` with `title`, optional `description`, optional `status`, and optional `due_date`; saved `Task` response with `id`, `title`, `description`, `status`, `due_date`, `created_at`, and `updated_at`; list envelope `{ tasks, next_cursor, has_more }`; and project error envelope `{ error: { code, message, details, request_id } }`. API matches field names, nullability, list envelope, and error shape. No frontend contract deviation needed.
 
 **Path / query parameters**
 
@@ -318,7 +320,13 @@ Location: /api/v1/tasks/550e8400-e29b-41d4-a716-446655440000
 | `INTERNAL` | 500 | Unexpected server failure. |
 | `UNAVAILABLE` | 503 | Database unavailable, migrations not ready, or request timed out before DB commit. |
 
-**Notes** — Optional `Idempotency-Key` supported as described in section 2.6. Duplicate titles are allowed. API trims title and description before storage. API returns saved row and frontend must update board from response, not optimistic unconfirmed state.
+**Notes** — Optional `Idempotency-Key` supported as described in section 2.6. Duplicate titles are allowed. API trims title and description before storage. Blank `description` and blank `due_date` normalize to `null`. API returns saved row and frontend must update board from response, not optimistic unconfirmed state.
+
+Migration plan for this story:
+
+| Step | Forward | Backward | Safe on populated table |
+|---|---|---|---|
+| Create task API | Add handler/repository code using existing `tasks` table; no schema migration. | Remove handler/repository code or stop routing `POST /api/v1/tasks`; no data rollback required. Created task rows may remain as normal `tasks` records. | Yes; no DDL, no data rewrite. Existing rows unaffected. |
 
 ### 3.3 `PATCH /api/v1/tasks/{task_id}`
 
@@ -556,7 +564,24 @@ Endpoint-to-requirement coverage:
 | `DELETE /api/v1/tasks/{task_id}` | TASKS-005 |
 | `GET /healthz` | Architecture runtime health; supports all task requirements by preventing false healthy state without DB |
 
-## 10. Story extension — Edit and move task
+## 10. Story extension — Create task
+
+Mock contract read from approved UI PR:
+
+- `code/frontend/lib/mock/create-task.ts` exposes `Task` with `id`, `title`, `description`, `status`, `due_date`, `created_at`, `updated_at`.
+- `TaskCreateRequest` is `{ title, description?, status?, due_date? }`.
+- `TaskListResponse` is `{ tasks, next_cursor, has_more }`.
+- `ApiErrorResponse` is project error envelope `{ error: { code, message, details, request_id } }` with create endpoint codes `BAD_REQUEST`, `VALIDATION_FAILED`, `RATE_LIMITED`, `INTERNAL`, and `UNAVAILABLE`.
+
+API contract matches mock fields, nullability, list envelope, and error shape. No frontend rework needed for contract shape. Only behavior changes when backend replaces mock: `POST /api/v1/tasks` becomes persisted source of truth.
+
+Migration plan for this story:
+
+| Step | Forward | Backward | Safe on populated table |
+|---|---|---|---|
+| Create task API | Add handler/repository code using existing `tasks` table; no schema migration. | Remove handler/repository code or stop routing `POST /api/v1/tasks`; no data rollback required. Created task rows may remain as normal `tasks` records. | Yes; no DDL, no data rewrite. Existing rows unaffected. |
+
+## 11. Story extension — Edit and move task
 
 Mock contract read from approved UI PR:
 
@@ -572,7 +597,7 @@ Migration plan for this story:
 |---|---|---|---|
 | Edit and move API | Add handler/repository code using existing `tasks` table; no schema migration. | Remove handler/repository code or stop routing PATCH; no data rollback required. | Yes; no DDL, no data rewrite. Existing rows keep values. |
 
-## 11. Open questions
+## 12. Open questions
 
 | Question | Owner | Blocking |
 |---|---|---|
