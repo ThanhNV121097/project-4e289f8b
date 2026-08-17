@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +31,7 @@ import (
 var migrationFS embed.FS
 
 const migrationDir = "migrations"
+const maxBodyBytes = 16 << 10
 
 type task struct {
 	ID          string  `json:"id"`
@@ -42,6 +47,13 @@ type tasksResponse struct {
 	Tasks      []task  `json:"tasks"`
 	NextCursor *string `json:"next_cursor"`
 	HasMore    bool    `json:"has_more"`
+}
+
+type createTaskRequest struct {
+	Title       string  `json:"title"`
+	Description *string `json:"description"`
+	Status      *string `json:"status"`
+	DueDate     *string `json:"due_date"`
 }
 
 type fieldError struct {
@@ -60,8 +72,9 @@ type errorResponse struct {
 }
 
 type app struct {
-	db      *sql.DB
-	limiter *rateLimiter
+	db          *sql.DB
+	limiter     *rateLimiter
+	idempotency *idempotencyStore
 }
 
 type requestIDKey struct{}
@@ -75,6 +88,18 @@ type rateLimiter struct {
 type bucket struct {
 	tokens float64
 	seen   time.Time
+}
+
+type idempotencyStore struct {
+	mu      sync.Mutex
+	entries map[string]idempotencyEntry
+	now     func() time.Time
+}
+
+type idempotencyEntry struct {
+	bodyHash string
+	task     task
+	expires  time.Time
 }
 
 func main() {
@@ -98,7 +123,7 @@ func run() error {
 	if err := applyMigrations(ctx, db); err != nil {
 		return fmt.Errorf("apply migrations: %w", err)
 	}
-	a := app{db: db, limiter: newRateLimiter()}
+	a := app{db: db, limiter: newRateLimiter(), idempotency: newIdempotencyStore()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
 	// Mounted without the /api prefix on purpose. The edge proxy routes this
@@ -108,6 +133,9 @@ func run() error {
 	// the container itself answered fine, so the deployed board rendered
 	// "Cannot load tasks." with a healthy backend behind it.
 	mux.HandleFunc("GET /v1/tasks", a.listTasks)
+	mux.HandleFunc("POST /v1/tasks", a.createTask)
+	mux.HandleFunc("PATCH /v1/tasks/{task_id}", a.patchTask)
+	mux.HandleFunc("DELETE /v1/tasks/{task_id}", a.deleteTask)
 	server := &http.Server{Addr: ":" + listenPort(), Handler: requestID(a.rateLimit(mux)), ReadHeaderTimeout: 5 * time.Second}
 	errCh := make(chan error, 1)
 	go func() {
@@ -272,12 +300,10 @@ func (a app) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	items := make([]task, 0, limit)
+	items := make([]task, 0, limit+1)
 	for rows.Next() {
-		var t task
-		var desc, due sql.NullString
-		var created, updated time.Time
-		if err := rows.Scan(&t.ID, &t.Title, &desc, &t.Status, &due, &created, &updated); err != nil {
+		t, err := scanTask(rows)
+		if err != nil {
 			writeError(w, r, http.StatusInternalServerError, "INTERNAL", "Unexpected server failure.", nil)
 			return
 		}
@@ -286,14 +312,6 @@ func (a app) listTasks(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, http.StatusInternalServerError, "INTERNAL", "Unexpected server failure.", nil)
 			return
 		}
-		if desc.Valid {
-			t.Description = &desc.String
-		}
-		if due.Valid {
-			t.DueDate = &due.String
-		}
-		t.CreatedAt = created.UTC().Format(time.RFC3339Nano)
-		t.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
 		items = append(items, t)
 	}
 	if err := rows.Err(); err != nil {
@@ -313,7 +331,176 @@ func (a app) listTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasksResponse{Tasks: items, NextCursor: next, HasMore: hasMore})
 }
 
+func (a app) createTask(w http.ResponseWriter, r *http.Request) {
+	body, err := readJSONBody(w, r)
+	if err != nil {
+		return
+	}
+	key := r.Header.Get("Idempotency-Key")
+	bodyHash := hashBody(body)
+	if key != "" {
+		// Location stays the PUBLIC /api form: the browser talks to the proxy,
+		// which strips /api on the way in but rewrites nothing on the way out.
+		if saved, ok, sameBody := a.idempotency.get(r.Method+" "+r.URL.Path+" "+key, bodyHash); ok {
+			if !sameBody {
+				writeError(w, r, http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Idempotency key was reused with a different body.", nil)
+				return
+			}
+			w.Header().Set("Location", "/api/v1/tasks/"+saved.ID)
+			writeJSON(w, http.StatusCreated, saved)
+			return
+		}
+	}
+	input, details, badRequest := parseCreateBody(body)
+	if badRequest {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Request body is invalid.", details)
+		return
+	}
+	if len(details) > 0 {
+		writeError(w, r, http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Task could not be created.", details)
+		return
+	}
+	status := "todo"
+	if input.Status != nil {
+		status = *input.Status
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	row := a.db.QueryRowContext(ctx, `INSERT INTO tasks (title, description, status, due_date) VALUES ($1, $2, $3, $4) RETURNING id::text, title, description, status, due_date::text, created_at, updated_at`, input.Title, input.Description, status, input.DueDate)
+	saved, err := scanTask(row)
+	if err != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "UNAVAILABLE", "Database is unavailable.", nil)
+		return
+	}
+	if key != "" {
+		a.idempotency.put(r.Method+" "+r.URL.Path+" "+key, bodyHash, saved)
+	}
+	w.Header().Set("Location", "/api/v1/tasks/"+saved.ID)
+	writeJSON(w, http.StatusCreated, saved)
+}
+func readJSONBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	ct := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+	if ct != "application/json" {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Content-Type must be application/json.", nil)
+		return nil, errors.New("bad content type")
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes+1))
+	if err != nil || len(body) > maxBodyBytes {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Request body is too large.", nil)
+		return nil, errors.New("bad body")
+	}
+	if len(strings.TrimSpace(string(body))) == 0 {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Request body must be a JSON object.", nil)
+		return nil, errors.New("empty body")
+	}
+	return body, nil
+}
+
+func parseCreateBody(body []byte) (createTaskRequest, []fieldError, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return createTaskRequest{}, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "JSON cannot be parsed."}}, true
+	}
+	if raw == nil {
+		return createTaskRequest{}, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "JSON body must be an object."}}, true
+	}
+	allowed := map[string]bool{"title": true, "description": true, "status": true, "due_date": true}
+	for k := range raw {
+		if !allowed[k] {
+			return createTaskRequest{}, []fieldError{{Field: "body", Code: "UNKNOWN_FIELD", Message: "Unknown field is not supported."}}, true
+		}
+	}
+	var req createTaskRequest
+	var details []fieldError
+	if v, ok := raw["title"]; !ok {
+		details = append(details, fieldError{Field: "title", Code: "REQUIRED", Message: "Title is required."})
+	} else if err := json.Unmarshal(v, &req.Title); err != nil {
+		return req, nil, true
+	} else {
+		req.Title = strings.TrimSpace(req.Title)
+		if req.Title == "" {
+			details = append(details, fieldError{Field: "title", Code: "REQUIRED", Message: "Title is required."})
+		} else if len([]rune(req.Title)) > 120 {
+			details = append(details, fieldError{Field: "title", Code: "TOO_LONG", Message: "Title must be 120 characters or fewer."})
+		}
+	}
+	if v, ok := raw["description"]; ok {
+		if string(v) == "null" {
+			req.Description = nil
+		} else {
+			var desc string
+			if err := json.Unmarshal(v, &desc); err != nil {
+				return req, nil, true
+			}
+			desc = strings.TrimSpace(desc)
+			if desc != "" {
+				req.Description = &desc
+			}
+			if len([]rune(desc)) > 2000 {
+				details = append(details, fieldError{Field: "description", Code: "TOO_LONG", Message: "Description must be 2,000 characters or fewer."})
+			}
+		}
+	}
+	if v, ok := raw["status"]; ok {
+		var status string
+		if err := json.Unmarshal(v, &status); err != nil {
+			return req, nil, true
+		}
+		if !isStatus(status) {
+			details = append(details, fieldError{Field: "status", Code: "INVALID_ENUM", Message: "Status must be todo, doing, or done."})
+		} else {
+			req.Status = &status
+		}
+	}
+	if v, ok := raw["due_date"]; ok {
+		if string(v) == "null" {
+			req.DueDate = nil
+		} else {
+			var due string
+			if err := json.Unmarshal(v, &due); err != nil {
+				return req, nil, true
+			}
+			if !validDateOnly(due) {
+				details = append(details, fieldError{Field: "due_date", Code: "INVALID_DATE", Message: "Due date must be a real YYYY-MM-DD date."})
+			} else {
+				req.DueDate = &due
+			}
+		}
+	}
+	return req, details, false
+}
+
+type taskScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanTask(row taskScanner) (task, error) {
+	var t task
+	var desc, due sql.NullString
+	var created, updated time.Time
+	if err := row.Scan(&t.ID, &t.Title, &desc, &t.Status, &due, &created, &updated); err != nil {
+		return t, err
+	}
+	if desc.Valid {
+		t.Description = &desc.String
+	}
+	if due.Valid {
+		t.DueDate = &due.String
+	}
+	t.CreatedAt = created.UTC().Format(time.RFC3339Nano)
+	t.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
+	return t, nil
+}
+
 func isStatus(s string) bool { return s == "todo" || s == "doing" || s == "done" }
+
+func validDateOnly(s string) bool {
+	if len(s) != 10 {
+		return false
+	}
+	date, err := time.Parse("2006-01-02", s)
+	return err == nil && date.Format("2006-01-02") == s
+}
 
 func validUUID(s string) bool {
 	if len(s) != 36 {
@@ -334,6 +521,42 @@ func validUUID(s string) bool {
 	return true
 }
 
+func hashBody(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
+}
+
+func newIdempotencyStore() *idempotencyStore {
+	return &idempotencyStore{entries: map[string]idempotencyEntry{}, now: time.Now}
+}
+
+func (s *idempotencyStore) get(key, bodyHash string) (task, bool, bool) {
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[key]
+	if !ok {
+		return task{}, false, false
+	}
+	if now.After(entry.expires) {
+		delete(s.entries, key)
+		return task{}, false, false
+	}
+	return entry.task, true, entry.bodyHash == bodyHash
+}
+
+func (s *idempotencyStore) put(key, bodyHash string, t task) {
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, entry := range s.entries {
+		if now.After(entry.expires) {
+			delete(s.entries, k)
+		}
+	}
+	s.entries[key] = idempotencyEntry{bodyHash: bodyHash, task: t, expires: now.Add(10 * time.Minute)}
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -350,6 +573,201 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, messag
 	out.Error.Details = details
 	out.Error.RequestID = getRequestID(r)
 	writeJSON(w, status, out)
+}
+
+// deleteTask is the Delete-task story's handler, integrated from PR #26 after
+// the pipeline stranded it: 404 for a task already gone, 204 with no body on
+// success, and the same boundary checks as every other route.
+func (a app) deleteTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("task_id")
+	if !validUUID(id) {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Task ID must be a UUID.", []fieldError{{Field: "task_id", Code: "INVALID_UUID", Message: "Task ID must be a UUID."}})
+		return
+	}
+	if r.ContentLength > 0 {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Request body is not supported.", nil)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	result, err := a.db.ExecContext(ctx, "DELETE FROM tasks WHERE id = $1", id)
+	if err != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "UNAVAILABLE", "Database is unavailable.", nil)
+		return
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "INTERNAL", "Unexpected server failure.", nil)
+		return
+	}
+	if rows == 0 {
+		writeError(w, r, http.StatusNotFound, "NOT_FOUND", "Task was not found.", nil)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// The Edit-and-move story's PATCH, integrated from PR #22. The shape it
+// enforces survived two review rounds there: an unknown field is 400 rather
+// than ignored, an empty {} is 422 EMPTY_PATCH rather than a no-op update,
+// and description/due_date distinguish "absent" from "set to null".
+type patchTaskRequest struct {
+	any         bool
+	Title       *string
+	Description nullableString
+	Status      *string
+	DueDate     nullableString
+}
+
+type nullableString struct {
+	set   bool
+	value *string
+}
+
+func (a app) patchTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("task_id")
+	if !validUUID(id) {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Task ID must be a UUID.", []fieldError{{Field: "task_id", Code: "INVALID_UUID", Message: "Task ID must be a UUID."}})
+		return
+	}
+	if !hasJSONContentType(r.Header.Get("Content-Type")) {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Content-Type must be application/json.", nil)
+		return
+	}
+	req, details, bad := decodePatch(w, r)
+	if bad {
+		writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Request body is invalid.", details)
+		return
+	}
+	if details = validatePatch(req); len(details) > 0 {
+		writeError(w, r, http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Task fields are invalid.", details)
+		return
+	}
+	set := []string{"updated_at = now()"}
+	args := []any{}
+	if req.Title != nil {
+		args = append(args, strings.TrimSpace(*req.Title))
+		set = append(set, fmt.Sprintf("title = $%d", len(args)))
+	}
+	if req.Description.set {
+		args = append(args, req.Description.value)
+		set = append(set, fmt.Sprintf("description = $%d", len(args)))
+	}
+	if req.Status != nil {
+		args = append(args, *req.Status)
+		set = append(set, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if req.DueDate.set {
+		args = append(args, req.DueDate.value)
+		set = append(set, fmt.Sprintf("due_date = $%d", len(args)))
+	}
+	args = append(args, id)
+	query := fmt.Sprintf(`UPDATE tasks SET %s WHERE id = $%d RETURNING id::text, title, description, status, due_date::text, created_at, updated_at`, strings.Join(set, ", "), len(args))
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	item, err := scanTask(a.db.QueryRowContext(ctx, query, args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, r, http.StatusNotFound, "NOT_FOUND", "Task was not found.", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, r, http.StatusServiceUnavailable, "UNAVAILABLE", "Database is unavailable.", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func hasJSONContentType(v string) bool {
+	mediaType, _, err := mime.ParseMediaType(v)
+	return err == nil && mediaType == "application/json"
+}
+
+func decodePatch(w http.ResponseWriter, r *http.Request) (patchTaskRequest, []fieldError, bool) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil || len(strings.TrimSpace(string(body))) == 0 {
+		return patchTaskRequest{}, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Body must be a JSON object."}}, true
+	}
+	var top any
+	dec := json.NewDecoder(strings.NewReader(string(body)))
+	dec.UseNumber()
+	if err := dec.Decode(&top); err != nil || dec.Decode(&struct{}{}) != io.EOF {
+		return patchTaskRequest{}, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Body must be a JSON object."}}, true
+	}
+	raw, ok := top.(map[string]any)
+	if !ok {
+		return patchTaskRequest{}, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Body must be a JSON object."}}, true
+	}
+	allowed := map[string]bool{"title": true, "description": true, "status": true, "due_date": true}
+	var req patchTaskRequest
+	for key, value := range raw {
+		if !allowed[key] {
+			return req, []fieldError{{Field: "body", Code: "UNKNOWN_FIELD", Message: "Unknown field is not allowed."}}, true
+		}
+		req.any = true
+		switch key {
+		case "title":
+			v, ok := value.(string)
+			if !ok {
+				return req, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Field has wrong JSON type."}}, true
+			}
+			req.Title = &v
+		case "description":
+			req.Description.set = true
+			if value != nil {
+				v, ok := value.(string)
+				if !ok {
+					return req, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Field has wrong JSON type."}}, true
+				}
+				v = strings.TrimSpace(v)
+				if v != "" {
+					req.Description.value = &v
+				}
+			}
+		case "status":
+			v, ok := value.(string)
+			if !ok {
+				return req, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Field has wrong JSON type."}}, true
+			}
+			req.Status = &v
+		case "due_date":
+			req.DueDate.set = true
+			if value != nil {
+				v, ok := value.(string)
+				if !ok {
+					return req, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Field has wrong JSON type."}}, true
+				}
+				v = strings.TrimSpace(v)
+				req.DueDate.value = &v
+			}
+		}
+	}
+	return req, nil, false
+}
+
+func validatePatch(req patchTaskRequest) []fieldError {
+	if !req.any {
+		return []fieldError{{Field: "body", Code: "EMPTY_PATCH", Message: "At least one field is required."}}
+	}
+	var out []fieldError
+	if req.Title != nil {
+		title := strings.TrimSpace(*req.Title)
+		if title == "" {
+			out = append(out, fieldError{Field: "title", Code: "REQUIRED", Message: "Title is required."})
+		}
+		if len([]rune(title)) > 120 {
+			out = append(out, fieldError{Field: "title", Code: "TOO_LONG", Message: "Title must be 120 characters or fewer."})
+		}
+	}
+	if req.Description.set && req.Description.value != nil && len([]rune(*req.Description.value)) > 2000 {
+		out = append(out, fieldError{Field: "description", Code: "TOO_LONG", Message: "Description must be 2,000 characters or fewer."})
+	}
+	if req.Status != nil && !isStatus(*req.Status) {
+		out = append(out, fieldError{Field: "status", Code: "INVALID_ENUM", Message: "Status must be todo, doing, or done."})
+	}
+	if req.DueDate.set && req.DueDate.value != nil && !validDateOnly(*req.DueDate.value) {
+		out = append(out, fieldError{Field: "due_date", Code: "INVALID_DATE", Message: "Due date must be a real YYYY-MM-DD date."})
+	}
+	return out
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
