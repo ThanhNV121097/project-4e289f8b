@@ -1,14 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  deleteTaskErrorResponse,
-  deleteTaskFailureError,
-  deleteTaskListResponse,
-  deleteTaskNotFoundError,
-  type Task,
-  type TaskStatus,
-} from "../lib/mock/delete-task";
+import { deleteTask, listTasks, type ApiErrorResponse, type Task, type TaskStatus } from "../lib/delete-task";
 import styles from "./DeleteTask.module.css";
 
 const statuses: TaskStatus[] = ["todo", "doing", "done"];
@@ -16,16 +9,25 @@ const labels: Record<TaskStatus, string> = { todo: "Todo", doing: "Doing", done:
 type LoadState = "loading" | "error" | "ready";
 
 export default function DeleteTask() {
-  const [tasks, setTasks] = useState<Task[]>(deleteTaskListResponse.tasks);
-  const [loadState, setLoadState] = useState<LoadState>("ready");
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
   const [target, setTarget] = useState<Task | null>(null);
   const [message, setMessage] = useState("");
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const counts = useMemo(() => countByStatus(tasks), [tasks]);
 
-  function retryLoad() {
+  useEffect(() => { void retryLoad(); }, []);
+
+  async function retryLoad() {
     setLoadState("loading");
-    window.setTimeout(() => setLoadState("ready"), 160);
+    try {
+      const response = await listTasks();
+      setTasks(response.tasks);
+      setLoadState("ready");
+    } catch (error) {
+      setMessage(apiMessage(error, "Cannot load tasks from the API. Retry to avoid stale board data."));
+      setLoadState("error");
+    }
   }
 
   function requestDelete(task: Task) {
@@ -38,20 +40,16 @@ export default function DeleteTask() {
     window.setTimeout(() => restoreFocusRef.current?.focus(), 0);
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!target) return;
-    if (!tasks.some((task) => task.id === target.id)) {
-      setMessage(deleteTaskNotFoundError.error.message);
-      closeConfirm();
-      return;
+    try {
+      await deleteTask(target.id);
+      setTasks(tasks.filter((task) => task.id !== target.id));
+      setMessage(`Deleted “${target.title}” through DELETE /api/v1/tasks/${target.id}.`);
+    } catch (error) {
+      setMessage(apiMessage(error, "Delete failed. Last confirmed saved task remains visible."));
+      if ((error as ApiErrorResponse).error?.code === "NOT_FOUND") void retryLoad();
     }
-    if (target.id === "660e8400-e29b-41d4-a716-446655440001") {
-      setMessage(deleteTaskFailureError.error.message);
-      closeConfirm();
-      return;
-    }
-    setTasks(tasks.filter((task) => task.id !== target.id));
-    setMessage(`Deleted “${target.title}” through DELETE /api/v1/tasks/${target.id}.`);
     closeConfirm();
   }
 
@@ -143,7 +141,7 @@ function LoadingState() {
 }
 
 function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return <section className={styles.state} role="alert"><strong>Cannot load tasks.</strong><p>{deleteTaskErrorResponse.error.message}</p><button type="button" onClick={onRetry}>Retry</button></section>;
+  return <section className={styles.state} role="alert"><strong>Cannot load tasks.</strong><p>API data unavailable.</p><button type="button" onClick={onRetry}>Retry</button></section>;
 }
 
 function EmptyState({ status }: { status: TaskStatus }) {
@@ -158,6 +156,10 @@ function formatDueDate(dueDate: string | null) {
   if (!dueDate) return "None";
   const [year, month, day] = dueDate.split("-").map(Number);
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(year, month - 1, day));
+}
+
+function apiMessage(error: unknown, fallback: string) {
+  return (error as ApiErrorResponse).error?.message ?? fallback;
 }
 
 function trapFocus(event: KeyboardEvent, modal: HTMLElement | null) {
