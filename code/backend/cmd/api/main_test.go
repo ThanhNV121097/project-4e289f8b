@@ -14,11 +14,12 @@ func TestValidatePatch(t *testing.T) {
 		req  patchTaskRequest
 		want string
 	}{
-		{"blank title", patchTaskRequest{Title: &blank}, "title:REQUIRED"},
-		{"long title", patchTaskRequest{Title: &tooLongTitle}, "title:TOO_LONG"},
-		{"long description", patchTaskRequest{Description: nullableString{set: true, value: &tooLongDescription}}, "description:TOO_LONG"},
-		{"bad status", patchTaskRequest{Status: &badStatus}, "status:INVALID_ENUM"},
-		{"bad due date", patchTaskRequest{DueDate: nullableString{set: true, value: &badDate}}, "due_date:INVALID_DATE"},
+		{"empty patch", patchTaskRequest{}, "body:EMPTY_PATCH"},
+		{"blank title", patchTaskRequest{any: true, Title: &blank}, "title:REQUIRED"},
+		{"long title", patchTaskRequest{any: true, Title: &tooLongTitle}, "title:TOO_LONG"},
+		{"long description", patchTaskRequest{any: true, Description: nullableString{set: true, value: &tooLongDescription}}, "description:TOO_LONG"},
+		{"bad status", patchTaskRequest{any: true, Status: &badStatus}, "status:INVALID_ENUM"},
+		{"bad due date", patchTaskRequest{any: true, DueDate: nullableString{set: true, value: &badDate}}, "due_date:INVALID_DATE"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
