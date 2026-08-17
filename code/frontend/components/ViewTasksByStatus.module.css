@@ -62,8 +62,15 @@
   padding-block-end: var(--space-12);
 }
 
-.hero h1 {
+.hero h1,
+.hero p,
+.card h3,
+.card p,
+.empty {
   margin: var(--space-0);
+}
+
+.hero h1 {
   color: var(--color-text);
   font-size: var(--text-3xl);
   line-height: var(--line-tight);
@@ -71,7 +78,6 @@
 
 .hero p {
   max-width: 56ch;
-  margin: var(--space-0);
   color: var(--color-text-muted);
   line-height: var(--line-copy);
 }
@@ -114,6 +120,7 @@
   color: var(--color-text);
   font-size: var(--text-2xl);
 }
+
 .panel {
   display: grid;
   gap: var(--space-8);
@@ -163,7 +170,7 @@
 }
 
 .boardLoading {
-  opacity: .35;
+  opacity: calc(var(--space-1) / var(--space-6));
 }
 
 .column {
@@ -201,13 +208,17 @@
   background: var(--color-success);
 }
 
-.count {
-  padding: var(--space-2) var(--space-6);
+.count,
+.pill {
   border-radius: var(--radius-full);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
+}
+
+.count {
+  padding: var(--space-2) var(--space-6);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
 }
 
 .cards {
@@ -215,8 +226,8 @@
   gap: var(--space-8);
   padding: var(--space-8);
 }
+
 .empty {
-  margin: var(--space-0);
   padding: var(--space-12);
   border: var(--border-width) dashed var(--color-border-strong);
   border-radius: var(--radius-xl);
@@ -238,11 +249,6 @@
   border-color: var(--color-border-strong);
   box-shadow: var(--shadow-md);
   transform: translateY(calc(var(--space-1) * -1));
-}
-
-.card h3,
-.card p {
-  margin: var(--space-0);
 }
 
 .card h3 {
@@ -272,11 +278,8 @@
 .pill {
   padding: var(--space-2) var(--space-6);
   border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-full);
   background: var(--color-bg);
   color: var(--color-muted-status-text);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-bold);
 }
 
 .pill.doing {
