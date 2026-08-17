@@ -27,7 +27,7 @@ export type ApiError = {
 
 type PatchTask = Partial<Pick<Task, "title" | "description" | "status" | "due_date">>;
 
-const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 async function parseError(response: Response): Promise<never> {
   let error: ApiError;
