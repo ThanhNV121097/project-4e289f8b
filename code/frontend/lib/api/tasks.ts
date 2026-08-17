@@ -18,7 +18,7 @@ export type TasksListResponse = {
 
 export type ApiErrorResponse = {
   error: {
-    code: "BAD_REQUEST" | "RATE_LIMITED" | "INTERNAL" | "UNAVAILABLE";
+    code: "BAD_REQUEST" | "NOT_FOUND" | "VALIDATION_FAILED" | "RATE_LIMITED" | "INTERNAL" | "UNAVAILABLE";
     message: string;
     details: Array<{ field: string; code: string; message: string }>;
     request_id: string;
@@ -53,11 +53,46 @@ export async function fetchTasks(): Promise<TasksListResponse> {
   return { tasks, next_cursor: null, has_more: false };
 }
 
-async function toApiError(response: Response): Promise<Error> {
+export type TaskInput = {
+  title: string;
+  description?: string | null;
+  status?: TaskStatus;
+  due_date?: string | null;
+};
+
+export async function createTask(input: TaskInput): Promise<Task> {
+  const response = await fetch(`${apiBase}/v1/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(input),
+    cache: "no-store",
+  });
+  if (response.status !== 201) throw await toApiError(response, "Task could not be created through the API.");
+  return (await response.json()) as Task;
+}
+
+export async function updateTask(id: string, patch: Partial<TaskInput>): Promise<Task> {
+  const response = await fetch(`${apiBase}/v1/tasks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(patch),
+    cache: "no-store",
+  });
+  if (!response.ok) throw await toApiError(response, "Task could not be updated through the API.");
+  return (await response.json()) as Task;
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  const response = await fetch(`${apiBase}/v1/tasks/${id}`, { method: "DELETE", cache: "no-store" });
+  if (response.status === 204) return;
+  throw await toApiError(response, "Task could not be deleted through the API.");
+}
+
+async function toApiError(response: Response, fallback = "Cannot load tasks from API. Retry to avoid stale board data."): Promise<Error> {
   try {
     const body = (await response.json()) as ApiErrorResponse;
     return new Error(body.error.message);
   } catch {
-    return new Error("Cannot load tasks from API. Retry to avoid stale board data.");
+    return new Error(fallback);
   }
 }
