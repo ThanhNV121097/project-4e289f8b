@@ -142,6 +142,10 @@ function isDateOnly(value: string) {
   return date.toISOString().slice(0, 10) === value;
 }
 
+function formatDueDate(value: string) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function LoadingState() {
   return <section className={styles.state} aria-live="polite"><strong>Loading tasks from API...</strong><span /></section>;
 }
@@ -159,5 +163,5 @@ function Column({ status, label, tasks }: { status: TaskStatus; label: string; t
 }
 
 function TaskCard({ task }: { task: Task }) {
-  return <article className={styles.task}><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}{task.due_date && <time dateTime={task.due_date}>{task.due_date}</time>}<span className={`${styles.pill} ${styles[task.status]}`}>{statusLabels[task.status]}</span></article>;
+  return <article className={styles.task}><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}{task.due_date && <time dateTime={task.due_date}>{formatDueDate(task.due_date)}</time>}<span className={`${styles.pill} ${styles[task.status]}`}>{statusLabels[task.status]}</span></article>;
 }
