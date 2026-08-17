@@ -3,7 +3,10 @@
   gap: var(--space-14);
 }
 
-.hero {
+.hero,
+.state,
+.form,
+.task {
   display: grid;
   gap: var(--space-8);
 }
@@ -130,8 +133,6 @@
 }
 
 .task {
-  display: grid;
-  gap: var(--space-7);
   margin-top: var(--space-8);
   padding: var(--space-8);
   background: var(--color-surface);
@@ -181,8 +182,6 @@
 }
 
 .form {
-  display: grid;
-  gap: var(--space-8);
   padding: var(--space-14);
   background: var(--color-surface);
   border-radius: var(--radius-2xl);
@@ -222,7 +221,8 @@
 .form input:disabled,
 .form textarea:disabled,
 .form select:disabled,
-.primary:disabled {
+.primary:disabled,
+.secondary:disabled {
   color: var(--color-text-muted);
   cursor: not-allowed;
 }
@@ -232,15 +232,25 @@
   color: var(--color-danger);
 }
 
-.primary {
+.primary,
+.secondary {
   width: max-content;
   border: var(--border-width) solid var(--color-primary);
   border-radius: var(--radius-md);
   padding: var(--space-7) var(--space-9);
+  transition: background var(--duration-base), transform var(--duration-base);
+}
+
+.primary {
   background: var(--color-primary);
   color: var(--color-primary-text);
   box-shadow: var(--shadow-md);
-  transition: background var(--duration-base), transform var(--duration-base);
+}
+
+.secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
 }
 
 .primary:not(:disabled):hover {
@@ -248,9 +258,8 @@
   transform: translateY(calc(var(--space-1) * -1));
 }
 
-.state {
-  display: grid;
-  gap: var(--space-8);
+.secondary:not(:disabled):hover {
+  background: var(--color-column-bg);
 }
 
 .state span {
