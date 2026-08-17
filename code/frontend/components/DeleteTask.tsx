@@ -101,7 +101,7 @@ function TaskCard({ task, onDelete }: { task: Task; onDelete: (task: Task) => vo
     <article className={styles.card}>
       <h3>{task.title}</h3>
       <p>{task.description ?? "No description"}</p>
-      <div className={styles.meta}><span>Due {task.due_date ?? "None"}</span><span className={`${styles.pill} ${styles[task.status]}`}>{labels[task.status]}</span></div>
+      <div className={styles.meta}><span>Due {formatDueDate(task.due_date)}</span><span className={`${styles.pill} ${styles[task.status]}`}>{labels[task.status]}</span></div>
       <div className={styles.actions}>
         <button type="button" disabled>Move left</button><button type="button" disabled>Move right</button><button type="button" disabled>Edit</button>
         <button className={styles.danger} type="button" onClick={() => onDelete(task)}>Delete</button>
@@ -152,6 +152,12 @@ function EmptyState({ status }: { status: TaskStatus }) {
 
 function countByStatus(tasks: Task[]) {
   return statuses.reduce<Record<TaskStatus, number>>((counts, status) => ({ ...counts, [status]: tasks.filter((task) => task.status === status).length }), { todo: 0, doing: 0, done: 0 });
+}
+
+function formatDueDate(dueDate: string | null) {
+  if (!dueDate) return "None";
+  const [year, month, day] = dueDate.split("-").map(Number);
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(year, month - 1, day));
 }
 
 function trapFocus(event: KeyboardEvent, modal: HTMLElement | null) {
