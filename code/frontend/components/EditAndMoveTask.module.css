@@ -42,5 +42,5 @@
 .invalid input, .invalid textarea, .invalid select { border-color: var(--color-error-border); }
 .primary { background: var(--color-primary) !important; border-color: var(--color-primary) !important; box-shadow: var(--shadow-md); color: var(--color-primary-text) !important; font-size: var(--text-base-sm) !important; padding: var(--space-7) var(--space-9) !important; }
 .primary:hover:not(:disabled) { background: var(--color-primary-hover) !important; }
-@keyframes shine { from { opacity: .35; } to { opacity: 1; } }
+@keyframes shine { from { opacity: var(--space-1); } to { opacity: 1; } }
 @media (min-width: 900px) { .summary, .board { grid-template-columns: repeat(3, 1fr); } }
