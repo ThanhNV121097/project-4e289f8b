@@ -6,7 +6,7 @@ Source requirements: `docs/tasks/SRS.md`
 
 ## 1. Overview
 
-This schema stores one aggregate root: tasks. It supports one single-person board with persisted title, optional description, workflow status, and optional date-only due date behind REST API.
+Schema stores one aggregate root: tasks. It supports one single-person board with persisted title, optional description, workflow status, and optional date-only due date behind REST API.
 
 Deliberately not stored: users, accounts, sessions, boards, assignments, comments, labels, tags, activity log, files, search indexes, notifications, browser-storage state, or multi-project data.
 
@@ -107,6 +107,7 @@ No table is expected to approach 10M rows within one year. No partitioning or ar
 | 1 | Enable UUID generation | `CREATE EXTENSION IF NOT EXISTS pgcrypto;` | no-op; do not drop shared extension | Yes; does not modify existing rows. |
 | 2 | Initial task schema | `001_create_tasks.up.sql`: create `tasks` table with columns, defaults, primary key, and checks. | `001_create_tasks.down.sql`: `DROP TABLE IF EXISTS tasks;` | n/a for initial empty database. Unsafe to roll back on populated table because rows are deleted; acceptable only before production data or after backup. |
 | 3 | Task listing index | `CREATE INDEX idx_tasks_status_created_at ON tasks (status, created_at);` | `DROP INDEX IF EXISTS idx_tasks_status_created_at;` | Yes on launch. On populated production table, use `CREATE INDEX CONCURRENTLY` in separate migration. |
+| 4 | Edit and move task | No schema change. Existing `tasks.title`, `tasks.description`, `tasks.status`, `tasks.due_date`, and `tasks.updated_at` satisfy TASKS-003 and TASKS-004. | No-op. | Yes; no DDL or data rewrite. |
 
 Forward SQL shape:
 
@@ -136,7 +137,13 @@ DROP INDEX IF EXISTS idx_tasks_status_created_at;
 DROP TABLE IF EXISTS tasks;
 ```
 
-## 9. Open questions
+## 9. Story extension — Edit and move task
+
+Reviewed UI mock module `code/frontend/lib/mock/edit-and-move-task.ts` defines task object fields `id`, `title`, `description`, `status`, `due_date`, `created_at`, and `updated_at`; list envelope `tasks`, `next_cursor`, and `has_more`; and project error envelope `error.code`, `error.message`, `error.details`, and `error.request_id`. Existing schema already maps every field exactly.
+
+No new entity, column, foreign key, constraint, or index is needed for TASKS-003/TASKS-004. Edit and move use `UPDATE tasks SET title = COALESCE(...), description = ..., status = ..., due_date = ..., updated_at = now() WHERE id = $1 RETURNING ...` after handler validation. Primary key index serves target lookup; `idx_tasks_status_created_at` serves post-move board reload and status counts.
+
+## 10. Open questions
 
 | Question | Owner | Blocking |
 |---|---|---|
