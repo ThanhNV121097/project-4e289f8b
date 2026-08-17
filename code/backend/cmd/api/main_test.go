@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseCreateBodyValidatesAndNormalizes(t *testing.T) {
 	desc := "notes"
@@ -28,6 +31,33 @@ func TestParseCreateBodyRejectsCreateValidationErrors(t *testing.T) {
 		t.Fatal("parseCreateBody() returned bad request for validation errors")
 	}
 	want := map[string]string{"title": "REQUIRED", "status": "INVALID_ENUM", "due_date": "INVALID_DATE"}
+	if len(details) != len(want) {
+		t.Fatalf("details=%v", details)
+	}
+	for _, detail := range details {
+		if want[detail.Field] != detail.Code {
+			t.Fatalf("unexpected detail=%+v all=%v", detail, details)
+		}
+	}
+}
+
+func TestParseCreateBodyAcceptsLimits(t *testing.T) {
+	title := strings.Repeat("t", 120)
+	desc := strings.Repeat("d", 2000)
+	_, details, badRequest := parseCreateBody([]byte(`{"title":"` + title + `","description":"` + desc + `"}`))
+	if badRequest || len(details) != 0 {
+		t.Fatalf("parseCreateBody() badRequest=%v details=%v", badRequest, details)
+	}
+}
+
+func TestParseCreateBodyRejectsTooLongFields(t *testing.T) {
+	title := strings.Repeat("t", 121)
+	desc := strings.Repeat("d", 2001)
+	_, details, badRequest := parseCreateBody([]byte(`{"title":"` + title + `","description":"` + desc + `"}`))
+	if badRequest {
+		t.Fatal("parseCreateBody() returned bad request for validation errors")
+	}
+	want := map[string]string{"title": "TOO_LONG", "description": "TOO_LONG"}
 	if len(details) != len(want) {
 		t.Fatalf("details=%v", details)
 	}
