@@ -39,7 +39,7 @@ export const deleteTaskListResponse: TasksListResponse = {
     {
       id: "660e8400-e29b-41d4-a716-446655440001",
       title: "Draft board notes",
-      description: null,
+      description: "Mock upstream failure path keeps this saved task visible.",
       status: "doing",
       due_date: null,
       created_at: "2026-08-17T10:04:00Z",
@@ -59,12 +59,6 @@ export const deleteTaskListResponse: TasksListResponse = {
   has_more: false,
 };
 
-export const deleteTaskEmptyResponse: TasksListResponse = {
-  tasks: [],
-  next_cursor: null,
-  has_more: false,
-};
-
 export const deleteTaskErrorResponse: ApiErrorResponse = {
   error: {
     code: "UNAVAILABLE",
@@ -80,5 +74,14 @@ export const deleteTaskNotFoundError: ApiErrorResponse = {
     message: "Task was already deleted. Board refreshed from the API.",
     details: [],
     request_id: "01HXDELETE000000000000001",
+  },
+};
+
+export const deleteTaskFailureError: ApiErrorResponse = {
+  error: {
+    code: "UNAVAILABLE",
+    message: "Delete failed. Last confirmed saved task remains visible.",
+    details: [],
+    request_id: "01HXDELETE000000000000002",
   },
 };
