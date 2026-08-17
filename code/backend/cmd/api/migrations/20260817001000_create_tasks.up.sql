@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE tasks (
+CREATE TABLE IF NOT EXISTS tasks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL,
   description text NULL,
@@ -13,4 +13,4 @@ CREATE TABLE tasks (
   CONSTRAINT ck_tasks_status CHECK (status IN ('todo', 'doing', 'done'))
 );
 
-CREATE INDEX idx_tasks_status_created_at ON tasks (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_created_at ON tasks (status, created_at);
