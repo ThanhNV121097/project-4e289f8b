@@ -1,0 +1,77 @@
+# Shape: fullstack — frontend, backend and database.
+#
+# See scaffold/compose/static/docker-compose.yml for why each service declares
+# both `image` and `build`.
+
+services:
+  postgres:
+    # `local` profile: this starts for development and for CI, and does NOT
+    # start in a deployment. deploy.yml points DATABASE_URL at the shared
+    # instance instead — thirty deployed projects each running their own
+    # postgres would be several GB of near-empty servers.
+    #
+    #   docker compose --profile local up -d --wait
+    #
+    profiles: ["local"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ${IMAGE_REPO:-local}/backend:${IMAGE_TAG:-dev}
+    build:
+      context: code/backend
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app_secret}@postgres:5432/${POSTGRES_DB:-app}?sslmode=disable
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # The database is created empty and the server applies its own migrations
+      # on boot. A health check that only proves the process is listening will
+      # pass on a server that skipped them and fails on its first query.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  frontend:
+    image: ${IMAGE_REPO:-local}/frontend:${IMAGE_TAG:-dev}
+    build:
+      context: code/frontend
+      dockerfile: Dockerfile
+    environment:
+      # Baked into the bundle at build time by Next.js, so it names the address
+      # a browser uses, not the one the container network uses.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+volumes:
+  pg_data:
