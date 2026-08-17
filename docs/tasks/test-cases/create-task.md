@@ -1,84 +1,87 @@
-# Test cases — Create task
+# Test Cases — Create task
 
-Risk: high. This story writes persisted data and must prove API save + reload from Postgres.
+Risk level: high. This flow writes persisted board state and must survive API save + browser reload.
 
-## Coverage check
-Acceptance criteria covered: AC-1..AC-6.
-Named failure / boundary cases covered: blank title, title 120, title 121, description 2000, description 2001, invalid due date, invalid status, save failure, duplicate title allowed, board owner allowed.
+## Automated coverage
 
----
-
-**Scenario**: Create task with default status
-**Given** Create form is empty
+### Scenario: create task with title shows on Todo board
+**Given** create form is empty and Postgres has no task titled `Pay invoice`
 **When** Board owner enters title `Pay invoice` and submits
-**Then** Task `Pay invoice` appears in Todo column
+**Then** task `Pay invoice` appears in Todo column and saved state comes from API response
 
-**Scenario**: Reload shows created task from API
-**Given** Task `Pay invoice` was created and appears on board
+### Scenario: created task survives browser reload
+**Given** task `Pay invoice` was created and board shows it in Todo
 **When** Board owner reloads browser
-**Then** Same task appears from API after reload
+**Then** same task appears from API in Todo column
 
-**Scenario**: Create task with description
-**Given** Create form is empty and description field contains `Due before Friday`
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Created task card shows `Due before Friday`
+### Scenario: create task keeps description
+**Given** create form is empty
+**When** Board owner enters title `Pay invoice`, description `Due before Friday`, and submits
+**Then** created task card shows `Due before Friday`
 
-**Scenario**: Create task with due date
-**Given** Create form is empty and due date field contains `2026-08-17`
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Created task card shows `2026-08-17`
+### Scenario: create task keeps due date
+**Given** create form is empty
+**When** Board owner enters title `Pay invoice`, chooses due date `2026-09-30`, and submits
+**Then** created task card shows due date `2026-09-30`
 
-**Scenario**: Create task with initial Doing status
-**Given** Create form is empty and initial status is set to `doing`
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Created task appears in Doing column
+### Scenario: create task honors initial Doing status
+**Given** create form is empty
+**When** Board owner enters title `Pay invoice`, chooses initial status `doing`, and submits
+**Then** created task appears in Doing column
 
-**Scenario**: Create task without description or due date
-**Given** Create form is empty
-**When** Board owner enters title `Pay invoice` and submits with description blank and due date blank
-**Then** Task is saved without description and due date
+### Scenario: create task stores blank optional fields as absent
+**Given** create form is empty
+**When** Board owner enters title `Pay invoice` and leaves description and due date blank, then submits
+**Then** task is saved without description and without due date
 
-**Scenario**: Reject blank title
-**Given** Create form is empty
-**When** Board owner enters only whitespace in title and submits
-**Then** Inline title error appears and task is not saved
+### Scenario: blank title blocks save
+**Given** create form is empty
+**When** Board owner submits title that is blank after trimming whitespace
+**Then** inline title error appears and task is not saved
 
-**Scenario**: Accept title at 120 characters
-**Given** Create form is empty and title field has exactly 120 trimmed characters
-**When** Board owner submits create form
-**Then** Task is accepted and saved
+### Scenario: title at 120 chars is accepted
+**Given** create form is empty
+**When** Board owner submits title with exactly 120 characters
+**Then** task is accepted and saved
 
-**Scenario**: Reject title at 121 characters
-**Given** Create form is empty and title field has 121 trimmed characters
-**When** Board owner submits create form
-**Then** Inline title error names 120 character limit and task is not saved
+### Scenario: title at 121 chars is rejected
+**Given** create form is empty
+**When** Board owner submits title with 121 characters
+**Then** inline title error names 120 character limit and task is not saved
 
-**Scenario**: Accept description at 2000 characters
-**Given** Create form is empty and description field has exactly 2000 trimmed characters
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Task is accepted and saved
+### Scenario: description at 2,000 chars is accepted
+**Given** create form is empty
+**When** Board owner submits title `Pay invoice` with description of exactly 2,000 characters
+**Then** task is accepted and saved
 
-**Scenario**: Reject description at 2001 characters
-**Given** Create form is empty and description field has 2001 trimmed characters
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Inline description error names 2000 character limit and task is not saved
+### Scenario: description at 2,001 chars is rejected
+**Given** create form is empty
+**When** Board owner submits title `Pay invoice` with description of 2,001 characters
+**Then** inline description error names 2,000 character limit and task is not saved
 
-**Scenario**: Reject invalid due date
-**Given** Create form is empty and due date field contains `2026-02-30`
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Inline due date error appears and task is not saved
+### Scenario: invalid due date blocks save
+**Given** create form is empty
+**When** Board owner enters title `Pay invoice` and invalid due date `2026-02-30`, then submits
+**Then** inline due date error appears and task is not saved
 
-**Scenario**: Reject invalid initial status
-**Given** Create form is empty and initial status value is invalid
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Status error appears and task is not saved
+### Scenario: invalid initial status blocks save
+**Given** create form is empty
+**When** Board owner enters title `Pay invoice` and an initial status outside `todo`, `doing`, `done`, then submits
+**Then** status error appears and task is not saved
 
-**Scenario**: Save failure keeps task off board
-**Given** Create form is empty and API save fails
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Error message appears and task is not added to board as persisted data
+### Scenario: API or Postgres save failure leaves task unsaved
+**Given** create form has valid title `Pay invoice`
+**When** REST API save fails or Postgres is unavailable during submit
+**Then** error message appears and task is not added to board as persisted data
 
-**Scenario**: Duplicate title is allowed
-**Given** Another task already exists with title `Pay invoice`
-**When** Board owner enters title `Pay invoice` and submits
-**Then** Task is saved and duplicate title is allowed
+### Scenario: duplicate title is allowed
+**Given** another task already has title `Pay invoice`
+**When** Board owner creates another task with title `Pay invoice`
+**Then** task is saved successfully and both tasks remain allowed
+
+## Manual coverage
+
+### Scenario: created task persists only in API-backed board state
+**Given** task `Pay invoice` was created
+**When** Board owner inspects browser storage panels
+**Then** no task persistence is present in localStorage, sessionStorage, IndexedDB, or cookies
