@@ -33,6 +33,8 @@ export default function ViewTasksByStatus() {
 
   return (
     <div className={styles.shell}>
+      <Topbar />
+
       <section className={styles.hero} aria-labelledby="task-board-title">
         <p className={styles.eyebrow}>One board · API source of truth</p>
         <h1 id="task-board-title">Task board</h1>
@@ -57,6 +59,22 @@ export default function ViewTasksByStatus() {
         ))}
       </section>
     </div>
+  );
+}
+
+function Topbar() {
+  return (
+    <header className={styles.topbar}>
+      <a className={styles.brand} href="#task-board-title" aria-label="Task board home">
+        <span className={styles.mark} aria-hidden="true" />
+        <span>Task board</span>
+      </a>
+      <nav className={styles.nav} aria-label="Page navigation">
+        <a href="#task-board-title">Board</a>
+        <a href="#task-board-title">Create task</a>
+        <a href="#task-board-title">States</a>
+      </nav>
+    </header>
   );
 }
 
@@ -91,7 +109,6 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
     </section>
   );
 }
-
 function BoardColumn({ status, tasks }: { status: { key: TaskStatus; title: string }; tasks: Task[] }) {
   return (
     <section className={styles.column} aria-labelledby={`${status.key}-heading`}>
@@ -108,6 +125,8 @@ function BoardColumn({ status, tasks }: { status: { key: TaskStatus; title: stri
 }
 
 function TaskCard({ task }: { task: Task }) {
+  const moveText = task.status === "done" ? "Move left" : "Move right";
+
   return (
     <article className={styles.card}>
       <h3>{task.title}</h3>
@@ -117,9 +136,9 @@ function TaskCard({ task }: { task: Task }) {
         <span className={`${styles.pill} ${styles[task.status]}`}>{task.status}</span>
       </div>
       <div className={styles.actions} aria-label={`Actions for ${task.title}`}>
-        <button className={styles.mini} disabled type="button">Move</button>
-        <button className={styles.mini} disabled type="button">Edit</button>
-        <button className={styles.danger} disabled type="button">Delete</button>
+        <button className={styles.mini} type="button">{moveText}</button>
+        <button className={styles.mini} type="button">Edit</button>
+        <button className={styles.danger} type="button">Delete</button>
       </div>
     </article>
   );
