@@ -25,7 +25,7 @@ export default function DeleteTask() {
 
   function retryLoad() {
     setLoadState("loading");
-    window.setTimeout(() => setLoadState("ready"), 300);
+    window.setTimeout(() => setLoadState("ready"), 160);
   }
 
   function confirmDelete() {
