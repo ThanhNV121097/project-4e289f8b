@@ -67,7 +67,7 @@
 }
 
 .column {
-  min-height: 360px;
+  min-height: calc((var(--space-18) * 6) + var(--space-14));
   padding: var(--space-9);
   background: var(--color-column-bg);
   border-radius: var(--radius-2xl);
@@ -188,6 +188,7 @@
   border-radius: var(--radius-2xl);
   box-shadow: var(--shadow-md);
 }
+
 .form label {
   display: grid;
   gap: var(--space-4);
