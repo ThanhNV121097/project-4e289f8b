@@ -33,7 +33,7 @@ No other service may write `tasks`. Frontend reads and writes only through Go AP
 
 - Base URL: `{scheme}://{host}/api/v1`
 - Content type: `application/json; charset=utf-8`
-- Versioning: URL path major version. A new major version only for breaking changes.
+- Versioning: URL path major version. New major version only for breaking changes.
 - Trace header: `X-Request-Id` accepted from caller, generated if absent, echoed on every response and present in every backend log line.
 - Date format: `YYYY-MM-DD` calendar date, no time and no timezone.
 - Timestamp format: RFC 3339 UTC, for `created_at` and `updated_at`.
@@ -99,7 +99,7 @@ Field detail codes:
 | `description` | `TOO_LONG` | More than 2,000 characters after trimming |
 | `status` | `REQUIRED` | Missing on create when no default applies internally or null in update |
 | `status` | `INVALID_ENUM` | Not exactly `todo`, `doing`, or `done` |
-| `due_date` | `INVALID_DATE` | Not `YYYY-MM-DD` or not a real calendar date |
+| `due_date` | `INVALID_DATE` | Not `YYYY-MM-DD` or not real calendar date |
 | `task_id` | `INVALID_UUID` | Path ID is not UUID syntax |
 | `body` | `MALFORMED_JSON` | JSON cannot be parsed |
 | `body` | `UNKNOWN_FIELD` | JSON has fields outside endpoint schema |
@@ -241,7 +241,7 @@ None. Request with body is ignored only if empty; non-empty body returns `BAD_RE
 
 | Code | HTTP | Trigger |
 |---|---|---|
-| `BAD_REQUEST` | 400 | `limit` is not an integer, outside 1..200, cursor is malformed, unsupported method body is non-empty, or query parameter is unsupported. |
+| `BAD_REQUEST` | 400 | `limit` is not integer, outside 1..200, cursor is malformed, unsupported method body is non-empty, or query parameter is unsupported. |
 | `RATE_LIMITED` | 429 | Request exceeds rate limit. |
 | `INTERNAL` | 500 | Unexpected server failure. |
 | `UNAVAILABLE` | 503 | Database unavailable, migrations not ready, or request timed out before DB returned. |
@@ -324,6 +324,8 @@ Location: /api/v1/tasks/550e8400-e29b-41d4-a716-446655440000
 
 **Purpose** — Edit task fields and move task between statuses. **Traces to** — TASKS-003, TASKS-004. **Auth** — implicit Board owner; no credentials.
 
+Reviewed UI mock module `code/frontend/lib/mock/edit-and-move-task.ts` already uses same saved task shape and same error envelope as this endpoint. No frontend contract deviation needed.
+
 **Path / query parameters**
 
 | Name | In | Type | Required | Constraints | Description |
@@ -385,7 +387,7 @@ At least one editable field must be present. Unknown fields are rejected. Omitte
 | `INTERNAL` | 500 | Unexpected server failure. |
 | `UNAVAILABLE` | 503 | Database unavailable, migrations not ready, or request timed out before DB commit. |
 
-**Notes** — Last successful save wins. No optimistic concurrency token in scope because multi-user conflict handling and activity history are out of scope. Frontend must update card/column/counts from returned saved task. On failure, frontend keeps last confirmed saved values.
+**Notes** — Last successful save wins. No optimistic concurrency token in scope because multi-user conflict handling and activity history are out of scope. Frontend must update card/column/counts from returned saved task. On failure, frontend keeps last confirmed saved values. Move controls may send `{ "status": "doing" }` only; edit modal may send all edited fields.
 
 ### 3.4 `DELETE /api/v1/tasks/{task_id}`
 
@@ -554,7 +556,23 @@ Endpoint-to-requirement coverage:
 | `DELETE /api/v1/tasks/{task_id}` | TASKS-005 |
 | `GET /healthz` | Architecture runtime health; supports all task requirements by preventing false healthy state without DB |
 
-## 10. Open questions
+## 10. Story extension — Edit and move task
+
+Mock contract read from approved UI PR:
+
+- `code/frontend/lib/mock/edit-and-move-task.ts` exposes `Task` with `id`, `title`, `description`, `status`, `due_date`, `created_at`, `updated_at`.
+- `TasksResponse` is `{ tasks, next_cursor, has_more }`.
+- `ApiError` is project error envelope `{ error: { code, message, details, request_id } }`.
+
+API contract matches mock fields, nullability, list envelope, and error shape. No frontend rework needed for contract shape. Only behavior changes when backend replaces mock: `PATCH /api/v1/tasks/{task_id}` becomes persisted source of truth.
+
+Migration plan for this story:
+
+| Step | Forward | Backward | Safe on populated table |
+|---|---|---|---|
+| Edit and move API | Add handler/repository code using existing `tasks` table; no schema migration. | Remove handler/repository code or stop routing PATCH; no data rollback required. | Yes; no DDL, no data rewrite. Existing rows keep values. |
+
+## 11. Open questions
 
 | Question | Owner | Blocking |
 |---|---|---|
