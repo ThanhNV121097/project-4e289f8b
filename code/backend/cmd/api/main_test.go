@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,6 +50,17 @@ func TestRequestIDEchoesHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	withRequestLog(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeError(w, r, http.StatusInternalServerError, "INTERNAL", "boom", nil) })).ServeHTTP(w, r)
 	if got := w.Header().Get("X-Request-Id"); got != "abc" { t.Fatalf("X-Request-Id = %q, want abc", got) }
+	var body errorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil { t.Fatal(err) }
+	if body.Error.RequestID != "abc" { t.Fatalf("error.request_id = %q, want abc", body.Error.RequestID) }
+}
+
+func TestGeneratedRequestIDMatchesHeaderAndError(t *testing.T) {
+	w := httptest.NewRecorder()
+	withRequestLog(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeError(w, r, http.StatusInternalServerError, "INTERNAL", "boom", nil) })).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	var body errorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil { t.Fatal(err) }
+	if got := w.Header().Get("X-Request-Id"); got == "" || got != body.Error.RequestID { t.Fatalf("header request id %q, error request id %q", got, body.Error.RequestID) }
 }
 
 func makeString(n int) string { b := make([]byte, n); for i := range b { b[i] = 'x' }; return string(b) }
