@@ -31,6 +31,8 @@ var migrationFS embed.FS
 const migrationDir = "migrations"
 const maxBodyBytes = 16 << 10
 
+type requestIDKey struct{}
+
 var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 
 type server struct{ db *sql.DB }
@@ -101,10 +103,20 @@ func (l *rateLimiter) take(key string, now time.Time) time.Duration {
 
 func clientIP(r *http.Request) string { host, _, err := net.SplitHostPort(r.RemoteAddr); if err == nil { return host }; return r.RemoteAddr }
 
-func withRequestLog(next http.Handler) http.Handler { return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { id := requestID(r); w.Header().Set("X-Request-Id", id); rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}; start := time.Now(); next.ServeHTTP(rec, r); log.Printf("request_id=%s method=%s path=%s status=%d duration=%s bytes=%d remote=%s", id, r.Method, r.URL.Path, rec.status, time.Since(start), rec.bytes, clientIP(r)) }) }
+func withRequestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := requestID(r)
+		ctxReq := r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
+		w.Header().Set("X-Request-Id", id)
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+		next.ServeHTTP(rec, ctxReq)
+		log.Printf("request_id=%s method=%s path=%s status=%d duration=%s bytes=%d remote=%s", id, r.Method, r.URL.Path, rec.status, time.Since(start), rec.bytes, clientIP(r))
+	})
+}
 func (r *statusRecorder) WriteHeader(status int) { r.status = status; r.ResponseWriter.WriteHeader(status) }
 func (r *statusRecorder) Write(b []byte) (int, error) { n, err := r.ResponseWriter.Write(b); r.bytes += n; return n, err }
-func requestID(r *http.Request) string { if id := r.Header.Get("X-Request-Id"); id != "" { return id }; return fmt.Sprintf("%d", time.Now().UnixNano()) }
+func requestID(r *http.Request) string { if id, ok := r.Context().Value(requestIDKey{}).(string); ok && id != "" { return id }; if id := r.Header.Get("X-Request-Id"); id != "" { return id }; return fmt.Sprintf("%d", time.Now().UnixNano()) }
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second); defer cancel()
