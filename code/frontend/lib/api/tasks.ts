@@ -25,7 +25,12 @@ export type ApiErrorResponse = {
   };
 };
 
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+// The scaffold's contract, not a choice: local compose bakes
+// NEXT_PUBLIC_API_URL=http://localhost:8080 (straight to the backend, which
+// mounts /v1/... with no prefix); production bakes nothing, the fallback
+// "/api" applies, and the edge proxy strips it back off before forwarding.
+// The old name here (NEXT_PUBLIC_API_BASE_URL) was read by nobody.
+const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 export async function fetchTasks(): Promise<TasksListResponse> {
   const tasks: Task[] = [];
@@ -35,7 +40,7 @@ export async function fetchTasks(): Promise<TasksListResponse> {
   do {
     const params = new URLSearchParams({ limit: "200" });
     if (cursor) params.set("cursor", cursor);
-    const response = await fetch(`${apiBase}/api/v1/tasks?${params}`, { headers: { Accept: "application/json" }, cache: "no-store" });
+    const response = await fetch(`${apiBase}/v1/tasks?${params}`, { headers: { Accept: "application/json" }, cache: "no-store" });
     if (!response.ok) throw await toApiError(response);
     const page = (await response.json()) as TasksListResponse;
     tasks.push(...page.tasks);

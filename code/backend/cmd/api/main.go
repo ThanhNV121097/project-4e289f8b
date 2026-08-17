@@ -101,7 +101,13 @@ func run() error {
 	a := app{db: db, limiter: newRateLimiter()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
-	mux.HandleFunc("GET /api/v1/tasks", a.listTasks)
+	// Mounted without the /api prefix on purpose. The edge proxy routes this
+	// service with `handle_path /api/*`, which STRIPS that prefix before
+	// forwarding: a browser request for /api/v1/tasks arrives here as
+	// /v1/tasks. Mounting "/api/v1/tasks" made every proxied request 404 while
+	// the container itself answered fine, so the deployed board rendered
+	// "Cannot load tasks." with a healthy backend behind it.
+	mux.HandleFunc("GET /v1/tasks", a.listTasks)
 	server := &http.Server{Addr: ":" + listenPort(), Handler: requestID(a.rateLimit(mux)), ReadHeaderTimeout: 5 * time.Second}
 	errCh := make(chan error, 1)
 	go func() {
