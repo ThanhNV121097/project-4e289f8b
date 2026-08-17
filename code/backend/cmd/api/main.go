@@ -45,7 +45,7 @@ type tasksResponse struct { Tasks []task `json:"tasks"`; NextCursor *string `jso
 type fieldError struct { Field string `json:"field"`; Code string `json:"code"`; Message string `json:"message"` }
 type errorResponse struct { Error struct { Code string `json:"code"`; Message string `json:"message"`; Details []fieldError `json:"details"`; RequestID string `json:"request_id"` } `json:"error"` }
 type nullableString struct { set bool; value *string }
-type patchTaskRequest struct { Title *string; Description nullableString; Status *string; DueDate nullableString }
+type patchTaskRequest struct { any bool; Title *string; Description nullableString; Status *string; DueDate nullableString }
 
 func main() { if err := run(); err != nil { log.Fatal(err) } }
 
@@ -116,11 +116,11 @@ func decodePatch(w http.ResponseWriter, r *http.Request) (patchTaskRequest, []fi
 	var raw map[string]json.RawMessage
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err := dec.Decode(&raw); err != nil { return patchTaskRequest{}, []fieldError{{Field: "body", Code: "MALFORMED_JSON", Message: "Body must be a JSON object."}}, true }
-	if len(raw) == 0 { return patchTaskRequest{}, []fieldError{{Field: "body", Code: "EMPTY_PATCH", Message: "At least one field is required."}}, false }
 	allowed := map[string]bool{"title": true, "description": true, "status": true, "due_date": true}
 	var req patchTaskRequest
 	for key, body := range raw {
 		if !allowed[key] { return req, []fieldError{{Field: "body", Code: "UNKNOWN_FIELD", Message: "Unknown field is not allowed."}}, true }
+		req.any = true
 		switch key {
 		case "title":
 			var v string; if err := json.Unmarshal(body, &v); err != nil { return req, nil, true }; req.Title = &v
@@ -138,6 +138,7 @@ func decodePatch(w http.ResponseWriter, r *http.Request) (patchTaskRequest, []fi
 }
 
 func validatePatch(req patchTaskRequest) []fieldError {
+	if !req.any { return []fieldError{{Field: "body", Code: "EMPTY_PATCH", Message: "At least one field is required."}} }
 	var out []fieldError
 	if req.Title != nil { title := strings.TrimSpace(*req.Title); if title == "" { out = append(out, fieldError{Field: "title", Code: "REQUIRED", Message: "Title is required."}) }; if len([]rune(title)) > 120 { out = append(out, fieldError{Field: "title", Code: "TOO_LONG", Message: "Title must be 120 characters or fewer."}) } }
 	if req.Description.set && req.Description.value != nil && len([]rune(*req.Description.value)) > 2000 { out = append(out, fieldError{Field: "description", Code: "TOO_LONG", Message: "Description must be 2,000 characters or fewer."}) }
@@ -173,6 +174,7 @@ func listenPort() string { if port := os.Getenv("PORT"); port != "" { return por
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
 	if err := db.PingContext(ctx); err != nil { return err }
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil { return err }
 	entries, err := migrationFS.ReadDir(migrationDir); if err != nil { return err }
 	names := make([]string, 0, len(entries)); for _, entry := range entries { if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".up.sql") { names = append(names, entry.Name()) } }
 	sort.Strings(names)
@@ -182,9 +184,9 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 
 func applyMigration(ctx context.Context, db *sql.DB, version string, path string) error {
 	tx, err := db.BeginTx(ctx, nil); if err != nil { return err }; defer func() { _ = tx.Rollback() }()
-	var exists bool
-	err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'schema_migrations')`).Scan(&exists); if err != nil { return err }
-	if exists { var applied bool; err = tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)", version).Scan(&applied); if err != nil { return err }; if applied { return tx.Commit() } }
+	var applied bool
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)", version).Scan(&applied); err != nil { return err }
+	if applied { return tx.Commit() }
 	body, err := migrationFS.ReadFile(path); if err != nil { return err }
 	if _, err := tx.ExecContext(ctx, string(body)); err != nil { return err }
 	if _, err := tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING", version); err != nil { return err }
