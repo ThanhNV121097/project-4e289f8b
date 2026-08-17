@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: code/backend/go.sum
+      - run: go build ./...
+        working-directory: code/backend
+      - run: go vet ./...
+        working-directory: code/backend
+      - run: go test ./...
+        working-directory: code/backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: code/frontend/package-lock.json
+      - run: npm ci
+        working-directory: code/frontend
+      - run: npm run lint
+        working-directory: code/frontend
+      - run: npm run build
+        working-directory: code/frontend
+      - run: npm test --if-present
+        working-directory: code/frontend
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose --profile local config -q
+
+  tokens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject hardcoded CSS module colors and token fallbacks
+        run: |
+          if grep -rnE '#[0-9a-fA-F]{3,8}\b|var\(--[a-z0-9-]+,' --include='*.module.css' code/frontend; then
+            echo 'hardcoded colour or token fallback — use var(--token) and define the token in globals.css'
+            exit 1
+          fi
