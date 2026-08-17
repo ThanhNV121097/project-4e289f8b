@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  deleteTaskEmptyResponse,
   deleteTaskErrorResponse,
+  deleteTaskFailureError,
   deleteTaskListResponse,
   deleteTaskNotFoundError,
   type Task,
@@ -13,7 +13,7 @@ import styles from "./DeleteTask.module.css";
 
 const statuses: TaskStatus[] = ["todo", "doing", "done"];
 const labels: Record<TaskStatus, string> = { todo: "Todo", doing: "Doing", done: "Done" };
-type LoadState = "loading" | "error" | "ready" | "empty";
+type LoadState = "loading" | "error" | "ready";
 
 export default function DeleteTask() {
   const [tasks, setTasks] = useState<Task[]>(deleteTaskListResponse.tasks);
@@ -31,6 +31,11 @@ export default function DeleteTask() {
     if (!target) return;
     if (!tasks.some((task) => task.id === target.id)) {
       setMessage(deleteTaskNotFoundError.error.message);
+      setTarget(null);
+      return;
+    }
+    if (target.id === "660e8400-e29b-41d4-a716-446655440001") {
+      setMessage(deleteTaskFailureError.error.message);
       setTarget(null);
       return;
     }
@@ -52,7 +57,6 @@ export default function DeleteTask() {
       {message ? <p className={styles.toast} role="status">{message}</p> : null}
       {loadState === "loading" ? <LoadingState /> : null}
       {loadState === "error" ? <ErrorState onRetry={retryLoad} /> : null}
-      {loadState === "empty" ? <Board tasks={deleteTaskEmptyResponse.tasks} counts={countByStatus([])} onDelete={setTarget} /> : null}
       {loadState === "ready" ? <Board tasks={tasks} counts={counts} onDelete={setTarget} /> : null}
       {target ? <Confirm task={target} onCancel={() => setTarget(null)} onConfirm={confirmDelete} /> : null}
     </section>
@@ -96,6 +100,14 @@ function TaskCard({ task, onDelete }: { task: Task; onDelete: (task: Task) => vo
 }
 
 function Confirm({ task, onCancel, onConfirm }: { task: Task; onCancel: () => void; onConfirm: () => void }) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
   return (
     <div className={styles.backdrop} role="presentation" onClick={onCancel}>
       <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="confirm-delete-title" onClick={(event) => event.stopPropagation()}>
