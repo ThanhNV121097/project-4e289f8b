@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 const sourceRoots = ["app", "components", "lib"];
-const blocked = ["localStorage", "sessionStorage", "indexedDB", "document.cookie"];
+const blocked = ["local" + "Storage", "session" + "Storage", "indexed" + "DB", "document" + ".cookie"];
+const thisFile = join("lib", "api", "no-browser-storage.test.ts");
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -17,6 +18,7 @@ function files(dir: string): string[] {
 test("task board frontend does not persist tasks in browser storage", () => {
   const matches = sourceRoots
     .flatMap(files)
+    .filter((path) => path !== thisFile)
     .filter((path) => /\.(ts|tsx|js|jsx)$/.test(path))
     .flatMap((path) => {
       const text = readFileSync(path, "utf8");
