@@ -10,6 +10,8 @@ const statuses: Array<{ value: TaskStatus; label: string }> = [
   { value: "done", label: "Done" },
 ];
 
+const statusLabels = Object.fromEntries(statuses.map(({ value, label }) => [value, label])) as Record<TaskStatus, string>;
+
 type FieldName = "title" | "description" | "dueDate" | "status" | "form";
 type Errors = Partial<Record<FieldName, string>>;
 
@@ -111,7 +113,7 @@ async function saveTask(args: { title: string; description: string; dueDate: str
     const saved = await createTask({ title: args.title, description: args.description, due_date: args.dueDate || null, status: args.status });
     args.setTasks((current) => [...current, saved]);
     args.resetForm();
-    args.setToast("Task saved.");
+    args.setToast("Task created through REST API");
   } catch {
     args.setErrors({ form: "Task could not be saved. Try again." });
   } finally {
@@ -153,9 +155,9 @@ function Summary({ label, count }: { label: string; count: number }) {
 }
 
 function Column({ status, label, tasks }: { status: TaskStatus; label: string; tasks: Task[] }) {
-  return <section className={styles.column}><h2><span className={styles[status]} />{label}<b>{tasks.length}</b></h2>{tasks.length ? tasks.map((task) => <TaskCard key={task.id} task={task} />) : <p className={styles.empty}>No tasks yet.</p>}</section>;
+  return <section className={styles.column}><h2><span className={styles[status]} />{label}<b>{tasks.length}</b></h2>{tasks.length ? tasks.map((task) => <TaskCard key={task.id} task={task} />) : <p className={styles.empty}>No {label.toLowerCase()} tasks.</p>}</section>;
 }
 
 function TaskCard({ task }: { task: Task }) {
-  return <article className={styles.task}><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}{task.due_date && <time dateTime={task.due_date}>{task.due_date}</time>}<span className={`${styles.pill} ${styles[task.status]}`}>{task.status}</span></article>;
+  return <article className={styles.task}><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}{task.due_date && <time dateTime={task.due_date}>{task.due_date}</time>}<span className={`${styles.pill} ${styles[task.status]}`}>{statusLabels[task.status]}</span></article>;
 }
