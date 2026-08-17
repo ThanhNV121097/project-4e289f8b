@@ -8,13 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -59,6 +62,19 @@ type errorDetail struct {
 	Message string `json:"message"`
 }
 
+type clientBucket struct {
+	windowStart time.Time
+	count       int
+}
+
+type rateLimiter struct {
+	mu       sync.Mutex
+	disabled bool
+	limit    int
+	window   time.Duration
+	clients  map[string]clientBucket
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -92,7 +108,7 @@ func run() error {
 	addr := ":" + listenPort()
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           withRequestID(mux),
+		Handler:           withRequestID(newRateLimiter().middleware(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -136,7 +152,7 @@ func healthHandler(db *sql.DB) http.HandlerFunc {
 
 func listTasksHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.ContentLength > 0 {
+		if hasNonEmptyBody(w, r) {
 			writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "GET /api/v1/tasks does not accept a request body.", nil)
 			return
 		}
@@ -191,7 +207,7 @@ func deleteTaskHandler(db *sql.DB) http.HandlerFunc {
 			writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "Task ID must be a UUID.", []errorDetail{{Field: "task_id", Code: "INVALID_UUID", Message: "Task ID must be a UUID."}})
 			return
 		}
-		if r.ContentLength > 0 {
+		if hasNonEmptyBody(w, r) {
 			writeError(w, r, http.StatusBadRequest, "BAD_REQUEST", "DELETE /api/v1/tasks/{task_id} does not accept a request body.", nil)
 			return
 		}
@@ -214,6 +230,22 @@ func deleteTaskHandler(db *sql.DB) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+func hasNonEmptyBody(w http.ResponseWriter, r *http.Request) bool {
+	if r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0 {
+		return false
+	}
+	if r.ContentLength > 0 {
+		return true
+	}
+	body := http.MaxBytesReader(w, r.Body, 1)
+	buf := make([]byte, 1)
+	n, err := body.Read(buf)
+	if n > 0 {
+		return true
+	}
+	return err != nil && !errors.Is(err, io.EOF)
 }
 
 func listTasks(ctx context.Context, db *sql.DB, limit int, cursorCreated time.Time, cursorID string, hasCursor bool) ([]task, error) {
@@ -283,6 +315,50 @@ func dbError(err error) (int, string) {
 		return http.StatusServiceUnavailable, "UNAVAILABLE"
 	}
 	return http.StatusInternalServerError, "INTERNAL"
+}
+
+func newRateLimiter() *rateLimiter {
+	disabled, _ := strconv.ParseBool(os.Getenv("RATE_LIMIT_DISABLED"))
+	return &rateLimiter{disabled: disabled, limit: 120, window: time.Minute, clients: map[string]clientBucket{}}
+}
+
+func (l *rateLimiter) middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if l.allow(clientIP(r)) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Retry-After", "60")
+		writeError(w, r, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests. Try again later.", nil)
+	})
+}
+
+func (l *rateLimiter) allow(client string) bool {
+	if l.disabled {
+		return true
+	}
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	bucket := l.clients[client]
+	if now.Sub(bucket.windowStart) >= l.window {
+		l.clients[client] = clientBucket{windowStart: now, count: 1}
+		return true
+	}
+	if bucket.count >= l.limit {
+		return false
+	}
+	bucket.count++
+	l.clients[client] = bucket
+	return true
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || host == "" {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func withRequestID(next http.Handler) http.Handler {
