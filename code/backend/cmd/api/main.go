@@ -18,10 +18,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-//go:embed ../../migrations/*.up.sql
+//go:embed migrations/*.up.sql
 var migrationFS embed.FS
 
-const migrationDir = "../../migrations"
+const migrationDir = "migrations"
 
 func main() {
 	if err := run(); err != nil {
