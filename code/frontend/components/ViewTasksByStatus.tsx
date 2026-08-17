@@ -10,6 +10,12 @@ const statuses: Array<{ key: TaskStatus; title: string }> = [
   { key: "done", title: "Done" },
 ];
 
+const statusTitles: Record<TaskStatus, string> = {
+  todo: "Todo",
+  doing: "Doing",
+  done: "Done",
+};
+
 type LoadState = "loading" | "ready" | "error";
 
 export default function ViewTasksByStatus() {
@@ -34,13 +40,11 @@ export default function ViewTasksByStatus() {
   return (
     <div className={styles.shell}>
       <Topbar />
-
       <section className={styles.hero} aria-labelledby="task-board-title">
         <p className={styles.eyebrow}>One board · API source of truth</p>
         <h1 id="task-board-title">Task board</h1>
         <p>See every persisted task grouped by Todo, Doing, and Done. Browser storage is not used for task truth.</p>
       </section>
-
       <section className={styles.summary} aria-label="Task totals">
         {statuses.map((status) => (
           <article className={styles.summaryCard} key={status.key}>
@@ -49,10 +53,8 @@ export default function ViewTasksByStatus() {
           </article>
         ))}
       </section>
-
       {state === "loading" ? <LoadingState /> : null}
       {state === "error" ? <ErrorState onRetry={loadTasks} /> : null}
-
       <section className={state === "loading" ? styles.boardLoading : styles.board} aria-label="Task board">
         {statuses.map((status) => (
           <BoardColumn key={status.key} status={status} tasks={groups[status.key]} />
@@ -90,6 +92,10 @@ function isTaskStatus(status: string): status is TaskStatus {
   return status === "todo" || status === "doing" || status === "done";
 }
 
+function formatDueDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${value}T00:00:00`));
+}
+
 function LoadingState() {
   return (
     <section className={styles.panel} aria-live="polite">
@@ -109,6 +115,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
     </section>
   );
 }
+
 function BoardColumn({ status, tasks }: { status: { key: TaskStatus; title: string }; tasks: Task[] }) {
   return (
     <section className={styles.column} aria-labelledby={`${status.key}-heading`}>
@@ -132,8 +139,8 @@ function TaskCard({ task }: { task: Task }) {
       <h3>{task.title}</h3>
       {task.description ? <p>{task.description}</p> : null}
       <div className={styles.meta}>
-        {task.due_date ? <span>Due {task.due_date}</span> : null}
-        <span className={`${styles.pill} ${styles[task.status]}`}>{task.status}</span>
+        {task.due_date ? <span>{formatDueDate(task.due_date)}</span> : null}
+        <span className={`${styles.pill} ${styles[task.status]}`}>{statusTitles[task.status]}</span>
       </div>
       <div className={styles.actions} aria-label={`Actions for ${task.title}`}>
         <button className={styles.mini} type="button">{moveText}</button>
