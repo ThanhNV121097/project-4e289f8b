@@ -108,9 +108,16 @@ function validate(title: string, description: string, dueDate: string, status: T
   if (!title.trim()) errors.title = "Title is required.";
   if (title.trim().length > 120) errors.title = "Title must be 120 characters or fewer.";
   if (description.trim().length > 2000) errors.description = "Description must be 2,000 characters or fewer.";
-  if (dueDate && Number.isNaN(Date.parse(`${dueDate}T00:00:00Z`))) errors.dueDate = "Enter a valid due date.";
+  if (dueDate && !isDateOnly(dueDate)) errors.dueDate = "Enter a valid due date.";
   if (!statuses.some((item) => item.value === status)) errors.status = "Choose Todo, Doing, or Done.";
   return errors;
+}
+
+function isDateOnly(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.toISOString().slice(0, 10) === value;
 }
 
 function LoadingState() {
@@ -120,6 +127,7 @@ function LoadingState() {
 function ErrorState() {
   return <section className={styles.state} role="alert"><strong>Cannot load tasks.</strong><p>Retry avoids stale browser data.</p></section>;
 }
+
 function Summary({ label, count }: { label: string; count: number }) {
   return <article className={styles.card}><p>{label}</p><strong>{count}</strong></article>;
 }
