@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createTask, listTasks, Task, TaskStatus } from "../lib/mock/create-task";
+import { createTask, fetchTasks, Task, TaskStatus } from "../lib/api/tasks";
 import styles from "./CreateTaskPanel.module.css";
 
 const statuses: Array<{ value: TaskStatus; label: string }> = [
@@ -99,7 +99,7 @@ async function loadBoard(setTasks: (tasks: Task[]) => void, setLoadError: (value
   setLoading(true);
   setLoadError(false);
   try {
-    setTasks((await listTasks()).tasks);
+    setTasks((await fetchTasks()).tasks);
   } catch {
     setLoadError(true);
   } finally {
