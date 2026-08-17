@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   deleteTaskErrorResponse,
   deleteTaskFailureError,
@@ -20,6 +20,7 @@ export default function DeleteTask() {
   const [loadState, setLoadState] = useState<LoadState>("ready");
   const [target, setTarget] = useState<Task | null>(null);
   const [message, setMessage] = useState("");
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   const counts = useMemo(() => countByStatus(tasks), [tasks]);
 
   function retryLoad() {
@@ -27,21 +28,31 @@ export default function DeleteTask() {
     window.setTimeout(() => setLoadState("ready"), 160);
   }
 
+  function requestDelete(task: Task) {
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setTarget(task);
+  }
+
+  function closeConfirm() {
+    setTarget(null);
+    window.setTimeout(() => restoreFocusRef.current?.focus(), 0);
+  }
+
   function confirmDelete() {
     if (!target) return;
     if (!tasks.some((task) => task.id === target.id)) {
       setMessage(deleteTaskNotFoundError.error.message);
-      setTarget(null);
+      closeConfirm();
       return;
     }
     if (target.id === "660e8400-e29b-41d4-a716-446655440001") {
       setMessage(deleteTaskFailureError.error.message);
-      setTarget(null);
+      closeConfirm();
       return;
     }
     setTasks(tasks.filter((task) => task.id !== target.id));
     setMessage(`Deleted “${target.title}” through DELETE /api/v1/tasks/${target.id}.`);
-    setTarget(null);
+    closeConfirm();
   }
 
   return (
@@ -57,8 +68,8 @@ export default function DeleteTask() {
       {message ? <p className={styles.toast} role="status">{message}</p> : null}
       {loadState === "loading" ? <LoadingState /> : null}
       {loadState === "error" ? <ErrorState onRetry={retryLoad} /> : null}
-      {loadState === "ready" ? <Board tasks={tasks} counts={counts} onDelete={setTarget} /> : null}
-      {target ? <Confirm task={target} onCancel={() => setTarget(null)} onConfirm={confirmDelete} /> : null}
+      {loadState === "ready" ? <Board tasks={tasks} counts={counts} onDelete={requestDelete} /> : null}
+      {target ? <Confirm task={target} onCancel={closeConfirm} onConfirm={confirmDelete} /> : null}
     </section>
   );
 }
@@ -100,9 +111,14 @@ function TaskCard({ task, onDelete }: { task: Task; onDelete: (task: Task) => vo
 }
 
 function Confirm({ task, onCancel, onConfirm }: { task: Task; onCancel: () => void; onConfirm: () => void }) {
+  const modalRef = useRef<HTMLElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
+    cancelRef.current?.focus();
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") onCancel();
+      if (event.key === "Tab") trapFocus(event, modalRef.current);
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -110,11 +126,11 @@ function Confirm({ task, onCancel, onConfirm }: { task: Task; onCancel: () => vo
 
   return (
     <div className={styles.backdrop} role="presentation" onClick={onCancel}>
-      <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="confirm-delete-title" onClick={(event) => event.stopPropagation()}>
+      <section ref={modalRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="confirm-delete-title" onClick={(event) => event.stopPropagation()}>
         <h2 id="confirm-delete-title">Delete task?</h2>
         <p>“{task.title}” will be removed from Postgres through REST API. This cannot be undone.</p>
         <div className={styles.modalActions}>
-          <button type="button" onClick={onCancel}>Cancel</button>
+          <button ref={cancelRef} type="button" onClick={onCancel}>Cancel</button>
           <button className={styles.primaryDanger} type="button" onClick={onConfirm}>Confirm delete</button>
         </div>
       </section>
@@ -136,4 +152,19 @@ function EmptyState({ status }: { status: TaskStatus }) {
 
 function countByStatus(tasks: Task[]) {
   return statuses.reduce<Record<TaskStatus, number>>((counts, status) => ({ ...counts, [status]: tasks.filter((task) => task.status === status).length }), { todo: 0, doing: 0, done: 0 });
+}
+
+function trapFocus(event: KeyboardEvent, modal: HTMLElement | null) {
+  if (!modal) return;
+  const focusable = Array.from(modal.querySelectorAll<HTMLElement>("button:not(:disabled), [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"));
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!first || !last) return;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
