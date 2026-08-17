@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiErrorResponse, tasksListResponse, type Task, type TaskStatus } from "../lib/mock/view-tasks-by-status";
+import { fetchTasks, type Task, type TaskStatus } from "../lib/api/tasks";
 import styles from "./ViewTasksByStatus.module.css";
 
 const statuses: Array<{ key: TaskStatus; title: string }> = [
@@ -21,6 +21,7 @@ type LoadState = "loading" | "ready" | "error";
 export default function ViewTasksByStatus() {
   const [state, setState] = useState<LoadState>("loading");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [errorMessage, setErrorMessage] = useState("Cannot load tasks from API. Retry to avoid stale board data.");
 
   useEffect(() => {
     loadTasks();
@@ -28,11 +29,18 @@ export default function ViewTasksByStatus() {
 
   function loadTasks() {
     setState("loading");
-    window.setTimeout(() => {
-      const valid = tasksListResponse.tasks.every((task) => isTaskStatus(task.status));
-      setTasks(valid ? tasksListResponse.tasks : []);
-      setState(valid ? "ready" : "error");
-    }, 300);
+    fetchTasks()
+      .then((response) => {
+        const valid = response.tasks.every((task) => isTaskStatus(task.status));
+        setTasks(valid ? response.tasks : []);
+        setErrorMessage(valid ? "Cannot load tasks from API. Retry to avoid stale board data." : "API returned an invalid task status.");
+        setState(valid ? "ready" : "error");
+      })
+      .catch((error: Error) => {
+        setTasks([]);
+        setErrorMessage(error.message);
+        setState("error");
+      });
   }
 
   const groups = useMemo(() => groupTasks(tasks), [tasks]);
@@ -54,7 +62,7 @@ export default function ViewTasksByStatus() {
         ))}
       </section>
       {state === "loading" ? <LoadingState /> : null}
-      {state === "error" ? <ErrorState onRetry={loadTasks} /> : null}
+      {state === "error" ? <ErrorState message={errorMessage} onRetry={loadTasks} /> : null}
       <section className={state === "loading" ? styles.boardLoading : styles.board} aria-label="Task board">
         {statuses.map((status) => (
           <BoardColumn key={status.key} status={status} tasks={groups[status.key]} />
@@ -106,11 +114,11 @@ function LoadingState() {
   );
 }
 
-function ErrorState({ onRetry }: { onRetry: () => void }) {
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <section className={styles.panel} role="alert">
       <strong>Cannot load tasks.</strong>
-      <p>{apiErrorResponse.error.message}</p>
+      <p>{message}</p>
       <button className={styles.button} onClick={onRetry} type="button">Retry</button>
     </section>
   );
